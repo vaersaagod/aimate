@@ -8,6 +8,7 @@ use craft\base\Model;
 use craft\base\Plugin;
 use craft\events\DefineFieldHtmlEvent;
 use craft\fields\PlainText;
+use craft\fields\Table;
 use craft\log\MonologTarget;
 use craft\web\View;
 
@@ -80,6 +81,13 @@ class AIMate extends Plugin
             Field::class,
             Field::EVENT_DEFINE_INPUT_HTML,
             static function (DefineFieldHtmlEvent $event) {
+                if ($event->static) {
+                    return;
+                }
+                $element = $event->element;
+                if ($element?->getIsRevision()) {
+                    return;
+                }
                 $field = $event->sender;
                 if (!$field instanceof Field || !in_array(get_class($field), [
                         PlainText::class,
@@ -88,7 +96,6 @@ class AIMate extends Plugin
                     ], true)) {
                     return;
                 }
-                $element = $event->element;
                 $event->html .= Craft::$app->view->renderTemplate('_aimate/button.twig', ['field' => $field, 'element' => $element], View::TEMPLATE_MODE_CP);
             }
         );
