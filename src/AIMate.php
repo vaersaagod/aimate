@@ -5,19 +5,19 @@ namespace vaersaagod\aimate;
 use Craft;
 use craft\base\ElementInterface;
 use craft\base\Field;
-use craft\base\FieldLayoutElement;
 use craft\base\Model;
 use craft\base\Plugin;
 use craft\events\CreateFieldLayoutFormEvent;
 use craft\events\DefineFieldHtmlEvent;
 use craft\events\TemplateEvent;
 use craft\fieldlayoutelements\entries\EntryTitleField;
-use craft\fieldlayoutelements\TitleField;
 use craft\fields\PlainText;
 use craft\fields\Table;
+use craft\helpers\Db;
 use craft\helpers\StringHelper;
 use craft\log\MonologTarget;
 use craft\models\FieldLayout;
+use craft\records\MatrixBlockType;
 use craft\web\View;
 
 use Illuminate\Support\Collection;
@@ -96,10 +96,15 @@ class AIMate extends Plugin
                     return;
                 }
                 $field = $event->sender;
-                if (!$field instanceof Field || !static::isFieldEnabled($field)) {
+                if (!$field instanceof Field || !static::isFieldSupported($field)) {
                     return;
                 }
-                $buttonHtml = Craft::$app->view->renderTemplate('_aimate/button.twig', ['field' => $field, 'element' => $element], View::TEMPLATE_MODE_CP);
+                $fieldConfig = static::getFieldConfig($field, $element);
+                if ($fieldConfig === null) {
+                    return;
+                }
+                $prompts = $fieldConfig['prompts'] ?? null;
+                $buttonHtml = Craft::$app->view->renderTemplate('_aimate/button.twig', ['field' => $field, 'element' => $element, 'prompts' => $prompts,], View::TEMPLATE_MODE_CP);
                 if ($field instanceof \craft\ckeditor\Field) {
                     $event->html = str_replace('</textarea>', "</textarea>$buttonHtml", $event->html);
                 } else {
@@ -117,17 +122,23 @@ class AIMate extends Plugin
                 if (!$element instanceof ElementInterface) {
                     return;
                 }
+                $settings = AIMate::getInstance()->getSettings();
+                $fieldsConfig = $settings->fields;
+                if (!empty($fieldsConfig) && !in_array('title', array_keys($fieldsConfig))) {
+                    return;
+                }
+                $prompts = $fieldsConfig['title']['prompts'] ?? null;
                 Event::on(
                     View::class,
                     View::EVENT_AFTER_RENDER_TEMPLATE,
-                    static function (TemplateEvent $event) use ($element) {
-                        if ($event->template !== '_includes/forms/text.twig') {
+                    static function (TemplateEvent $event) use ($element, $prompts) {
+                        if ($event->templateMode !== View::TEMPLATE_MODE_CP || $event->template !== '_includes/forms/text.twig') {
                             return;
                         }
                         if (!StringHelper::startsWith($event->output, '<input type="text" id="title" ')) {
                             return;
                         }
-                        $buttonHtml = Craft::$app->view->renderTemplate('_aimate/button.twig', ['field' => ['id' => 'title'], 'element' => $element], View::TEMPLATE_MODE_CP);
+                        $buttonHtml = Craft::$app->view->renderTemplate('_aimate/button.twig', ['field' => ['id' => 'title'], 'element' => $element, 'prompts' => $prompts], View::TEMPLATE_MODE_CP);
                         $event->output = $buttonHtml . $event->output;
                     }
                 );
@@ -140,7 +151,7 @@ class AIMate extends Plugin
      * @param Field $field
      * @return bool
      */
-    private static function isFieldEnabled(Field $field): bool
+    private static function isFieldSupported(Field $field): bool
     {
         // Only a subset of field types are supported
         if (!in_array(get_class($field), [
@@ -156,6 +167,46 @@ class AIMate extends Plugin
             return false;
         }
         return true;
+    }
+
+    /**
+     * @param Field $field
+     * @param ElementInterface $element
+     * @return array|null
+     * @throws \yii\base\InvalidConfigException
+     */
+    private static function getFieldConfig(Field $field, ElementInterface $element): ?array
+    {
+        $fieldsConfig = AIMate::getInstance()->getSettings()->fields;
+        if (empty($fieldsConfig)) {
+            // They didn't configure anything, so anything goes!
+            return [];
+        }
+        $fieldHandle = null;
+        if ($field->context !== 'global') {
+            $contextParts = explode(':', $field->context);
+            if ($contextParts[0] ?? null === 'matrixBlockType' && !empty($contextParts[1])) {
+                $matrixBlockType = \Craft::$app->getMatrix()->getBlockTypeById(Db::idByUid(MatrixBlockType::tableName(), $contextParts[1]));
+                $matrixField = $matrixBlockType->getField();
+                $fieldHandle = $matrixField->handle . '.' . $matrixBlockType->handle . ':' . $field->handle;
+            }
+        } else {
+            $fieldHandle = $field->handle;
+        }
+        if (!$fieldHandle) {
+            return null;
+        }
+        // Look for config by field handle
+        $fieldConfig = $fieldsConfig[$fieldHandle] ?? null;
+        // Look for config by field type
+        if ($fieldConfig === null) {
+            $fieldType = get_class($field);
+            $fieldConfig = $fieldsConfig[$fieldType] ?? null;
+        }
+        if ($fieldConfig === null || $fieldConfig === false) {
+            return null;
+        }
+        return is_array($fieldConfig) ? $fieldConfig : [];
     }
 
 }

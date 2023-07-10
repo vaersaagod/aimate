@@ -1,7 +1,9 @@
 {% import '_includes/forms.twig' as forms %}
 
 {% set settings = craft.app.plugins.plugin('_aimate').settings %}
-{% set prompts = settings.prompts|default([]) %}
+{% set allPrompts = settings.prompts|default([]) %}
+{% set promptsToRender = prompts ?? allPrompts|column('handle') %}
+{% set prompts = allPrompts|filter(prompt => prompt.handle in promptsToRender) %}
 
 {% js %}
 
