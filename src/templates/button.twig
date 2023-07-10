@@ -80,13 +80,19 @@ $(() => {
                     if (!ckEditorInstance) {
                         throw new Error('Unable to find CKEditor instance in DOM');
                     }
-                    ckEditorInstance.setData(data.text);
                     ckEditorInstance.focus();
+                    ckEditorInstance.execute('selectAll');
+                    const viewFragment = ckEditorInstance.data.processor.toView(data.text);
+                    const modelFragment = ckEditorInstance.data.toModel(viewFragment);
+                    ckEditorInstance.model.insertContent(modelFragment);
                 } else if (fieldType === 'craft\\redactor\\Field') {
                     $R(`#${input.id}`, 'source.setCode', data.text);
                 } else {
-                    input.value = data.text;
                     input.focus();
+                    input.select();
+                    if (!document.execCommand('insertText', false, data.text)) {
+                        input.setRangeText(data.text);
+                    }
                 }
                 if (elementEditor) {
                     elementEditor.checkForm();
