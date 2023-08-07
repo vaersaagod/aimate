@@ -1,0 +1,14 @@
+{
+  "src/aimate.js": {
+    "file": "aimate.js",
+    "src": "src/aimate.js",
+    "isEntry": true,
+    "css": [
+      "aimate.css"
+    ]
+  },
+  "src/aimate.css": {
+    "file": "aimate.css",
+    "src": "src/aimate.css"
+  }
+}

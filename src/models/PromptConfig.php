@@ -19,11 +19,11 @@ class PromptConfig extends Model
     /** @var string|null */
     public ?string $model = null;
 
-    /** @var float */
-    public float $temperature = 0.7;
+    /** @var float|null */
+    public ?float $temperature = null;
 
-    /** @var int|null */
-    public ?int $maxWords = null;
+    /** @var int|bool|null */
+    public int|bool|null $maxWords = null;
 
     /** @var float|null */
     public ?float $maxWordsMultiplier = null;
@@ -38,6 +38,9 @@ class PromptConfig extends Model
     {
         $rules = parent::rules();
         $rules[] = [['handle', 'name', 'template'], 'required'];
+        $rules[] = ['model', function ($attribute, $params, $validator) {
+            $this->addError($attribute, 'The token must contain letters or digits.');
+        }];
         return $rules;
     }
 

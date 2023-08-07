@@ -1,8 +1,9 @@
 <?php
 
 return [
-    'chatGptAccessToken' => null,
+    'openAIApiKey' => '',
     'model' => 'gpt-3.5-turbo',
-    'fields' => null,
-    'prompts' => null,
+    'maxWordsMultiplier' => 1.5,
+    'prompts' => [],
+    'fields' => [],
 ];

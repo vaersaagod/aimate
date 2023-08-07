@@ -8,8 +8,8 @@ use craft\web\Controller;
 use Illuminate\Support\Collection;
 
 use vaersaagod\aimate\AIMate;
-use vaersaagod\aimate\helpers\PromptHelper;
 use vaersaagod\aimate\models\Prompt;
+use vaersaagod\aimate\models\PromptConfig;
 
 use yii\web\BadRequestHttpException;
 use yii\web\Response;
@@ -18,7 +18,7 @@ class DefaultController extends Controller
 {
 
     /** @var array|bool|int */
-    public array|bool|int $allowAnonymous = true;
+    public array|bool|int $allowAnonymous = true; // TODO remove this
 
     /** @var bool */
     public $enableCsrfValidation = false;
@@ -38,7 +38,7 @@ class DefaultController extends Controller
         $prompt = $this->_getPromptFromRequest();
 
         try {
-            $result = AIMate::getInstance()->openAI->getCompletion($prompt);
+            $result = $prompt->complete();
         } catch (\Throwable $e) {
             \Craft::error($e, __METHOD__);
             return $this->asFailure(message: $e->getMessage());
@@ -66,14 +66,25 @@ class DefaultController extends Controller
     {
 
         $settings = AIMate::getInstance()->getSettings();
+        $textInput = trim($this->request->getBodyParam('text', ''));
 
-        $handle = $this->request->getRequiredBodyParam('prompt');
+        $custom = $this->request->getBodyParam('custom');
 
-        $config = Collection::make($settings->prompts ?? [])
-            ->firstWhere('handle', $handle);
+        if ($custom) {
 
-        if (!$config) {
-            throw new BadRequestHttpException("Invalid prompt \"$handle\"");
+            $config = new PromptConfig([
+                'handle' => 'custom',
+                'name' => 'Custom',
+                'template' => $custom,
+            ]);
+
+        } else {
+            $handle = $this->request->getRequiredBodyParam('prompt');
+            $config = Collection::make($settings->prompts ?? [])
+                ->firstWhere('handle', $handle);
+            if (!$config) {
+                throw new BadRequestHttpException("Invalid prompt \"$handle\"");
+            }
         }
 
         /** @var Prompt $prompt */
@@ -82,7 +93,6 @@ class DefaultController extends Controller
             'config' => $config,
         ]);
 
-        $textInput = trim($this->request->getBodyParam('text', ''));
         if ($textInput) {
             $prompt->text = $textInput;
         }

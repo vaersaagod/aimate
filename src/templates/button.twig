@@ -4,198 +4,47 @@
 {% set allPrompts = settings.prompts|default([]) %}
 {% set promptsToRender = prompts ?? allPrompts|column('handle') %}
 {% set prompts = allPrompts|filter(prompt => prompt.handle in promptsToRender) %}
+{% set customPrompt = customPrompt ?? true %}
 
-{% js %}
+{% if prompts or customPrompt %}
 
-$(() => {
+    {% do craft.app.view.registerAssetBundle('vaersaagod\\aimate\\web\\assets\\AiMateAsset') %}
 
-    const executePrompt = (text, prompt, params) => {
-        return Craft.sendActionRequest(
-            'POST',
-            '_aimate/default/do-prompt',
-            {
-                data: { text, prompt, ...params }
-            }
-        );
-    };
-
-    const onPromptClick = e => {
-        e.preventDefault();
-        const { currentTarget: promptLink } = e;
-        const menu = promptLink.closest('[data-aimate-menu]');
-        const menuButton = document.querySelector(`button[aria-controls="${menu.id}"]`);
-        if (menuButton.classList.contains('loading')) {
-            return;
+    {{ forms.button({
+        spinner: true,
+        label: '💡',
+        attributes: {
+            'data-aimate': true,
+            'data-field': field.id,
+            'data-element': element.id|default,
+            'data-site': element.siteId|default,
+            'aria-label': 'Click to open the AIMate prompt menu'|t('_aimate'),
+            'aria-controls': "aimate-prompts-menu-#{field.id}",
+            'data-disclosure-trigger': true,
+            style: 'display:none;'
         }
-        $(menuButton).trigger('click');
-        const { field: fieldId, element: elementId, site: siteId } = menuButton.dataset;
-        const field = menuButton.closest('.field');
-        if (!field) {
-            Craft.cp.displayError('Field not found');
-            return;
-        }
-        const { type: fieldType } = field.dataset;
-        let input;
-        if (fieldType === 'craft\\fields\\Table') {
-            input = menuButton.closest('td.textual').querySelector('input,textarea');
-        } else {
-            input = menuButton.closest('.input').querySelector('input,textarea');
-        }
-        if (!input) {
-            Craft.cp.displayError('Input not found');
-            return;
-        }
-        // if (promptLink.hasAttribute('data-custom')) {
-        //     alert('custom prompt!'); // TODO
-        //     return;
-        // }
-        const { prompt } = promptLink.dataset;
-        if (!prompt) {
-            Craft.cp.displayError('No prompt');
-            return;
-        }
-        const elementEditor = $(input.closest('[data-element-editor]')).data('elementEditor');
-        let params = {
-            elementId, siteId
-        };
-        if (elementEditor) {
-            params = {
-                ...params,
-                draftId: elementEditor.settings.draftId,
-                isProvisionalDraft: elementEditor.settings.isProvisionalDraft
-            };
-        }
-        menuButton.classList.add('loading');
-        executePrompt(input.value, prompt, params)
-            .then(res => {
-                const { data } = res;
-                if (!data.text) {
-                    return;
-                }
-                const field = input.closest('.field');
-                const { type: fieldType } = field.dataset;
-                if (fieldType === 'craft\\ckeditor\\Field') {
-                    const editable = field.querySelector('.ck-editor__editable');
-                    const ckEditorInstance = editable ? editable.ckeditorInstance : null;
-                    if (!ckEditorInstance) {
-                        throw new Error('Unable to find CKEditor instance in DOM');
-                    }
-                    ckEditorInstance.focus();
-                    ckEditorInstance.execute('selectAll');
-                    const viewFragment = ckEditorInstance.data.processor.toView(data.text);
-                    const modelFragment = ckEditorInstance.data.toModel(viewFragment);
-                    ckEditorInstance.model.insertContent(modelFragment);
-                } else if (fieldType === 'craft\\redactor\\Field') {
-                    $R(`#${input.id}`, 'source.setCode', data.text);
-                } else {
-                    input.focus();
-                    input.select();
-                    if (!document.execCommand('insertText', false, data.text)) {
-                        input.setRangeText(data.text);
-                    }
-                }
-                if (elementEditor) {
-                    elementEditor.checkForm();
-                }
-            })
-            .catch(({response}) => {
-                Craft.cp.displayError(response.data.message);
-            })
-            .then(() => {
-                menuButton.classList.remove('loading');
-                input.focus();
-            });
-    };
+    }) }}
 
-    const initTableRow = $tr => {
-        const field = $tr.get(0).closest('.field');
-        if (!field) {
-            return;
-        }
-        const aimateButton = field.querySelector('button[data-aimate]');
-        if (!aimateButton) {
-            return;
-        }
-        const tds = $tr.children().get().filter(td => td.classList.contains('singleline-cell', 'multiline-cell'));
-        tds.forEach(td => {
-            const $aimateButton = $(aimateButton).clone(false, true);
-            const textarea = td.querySelector('textarea');
-            $(textarea.parentNode).prepend($aimateButton.disclosureMenu());
-            console.log('append ai mate button');
-        });
-    };
+    <div id="aimate-prompts-menu-{{ field.id }}" class="menu" data-align="right" data-aimate-menu>
+        {% if prompts %}
+            <ul>
+                {% for prompt in prompts %}
+                    <li>
+                        <a href="#" data-prompt="{{ prompt.handle }}">{{ prompt.name }}</a>
+                    </li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+        {% if customPrompt %}
+            {% if prompts %}
+                <hr/>
+            {% endif %}
+            <ul>
+                <li>
+                    <a href="#" data-custom>{{ 'Custom prompt...'|t('_aimate') }}</a>
+                </li>
+            </ul>
+        {% endif %}
+    </div>
 
-    $('.field table.editable tbody tr').each(function () {
-        initTableRow($(this));
-    });
-
-    const rowInitFn = Craft.EditableTable.Row.prototype.init;
-    Craft.EditableTable.Row.prototype.init = function () {
-        rowInitFn.apply(this, arguments);
-        initTableRow(this.$tr);
-    };
-
-    $('body').on('click', '[data-aimate-menu] a', onPromptClick);
-
-});
-
-{% endjs %}
-
-{% css %}
-    button[data-aimate] {
-        position:absolute;
-        right:0;
-        top:0;
-        z-index:1;
-    }
-    button[data-aimate] + input.nicetext,
-    button[data-aimate] + textarea.nicetext,
-    td.textual button[data-aimate] + textarea {
-        padding-right: 60px;
-    }
-    .field[data-type="craft\\fields\\Table"] .input > button[data-aimate] {
-        display: none;
-    }
-    .field[data-type="craft\\fields\\Table"] tbody td.textual button[data-aimate] {
-        border-top-right-radius: 0 !important;
-        border-bottom-right-radius: 0 !important;
-    }
-    .field[data-type="craft\\fields\\Table"] tbody td.textual {
-        position: relative;
-        z-index: 1;
-    }
-    .field[data-type="craft\\fields\\Table"] tbody td.textual.focus {
-        z-index: 2;
-    }
-{% endcss %}
-
-{{ forms.button({
-    spinner: true,
-    label: '💡',
-    attributes: {
-        'data-aimate': true,
-        'data-field': field.id,
-        'data-element': element.id|default,
-        'data-site': element.siteId|default,
-        'aria-label': 'Click to open the AIMate prompt menu'|t('_aimate'),
-        'aria-controls': "aimate-prompts-menu-#{field.id}",
-        'data-disclosure-trigger': true
-    }
-}) }}
-<div id="aimate-prompts-menu-{{ field.id }}" class="menu" data-align="right" data-aimate-menu>
-    <ul>
-        {% for prompt in prompts %}
-            <li>
-                <a href="#" data-prompt="{{ prompt.handle }}">{{ prompt.name }}</a>
-            </li>
-        {% endfor %}
-    </ul>
-    {# TODO
-        <hr/>
-    <ul>
-        <li>
-            <a href="#" data-custom>{{ 'Custom prompt...'|t('_aimate') }}</a>
-        </li>
-    </ul>
-    #}
-</div>
+{% endif %}

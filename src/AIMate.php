@@ -10,7 +10,6 @@ use craft\base\Plugin;
 use craft\events\CreateFieldLayoutFormEvent;
 use craft\events\DefineFieldHtmlEvent;
 use craft\events\TemplateEvent;
-use craft\fieldlayoutelements\entries\EntryTitleField;
 use craft\fields\PlainText;
 use craft\fields\Table;
 use craft\helpers\Db;
@@ -21,19 +20,20 @@ use craft\records\MatrixBlockType;
 use craft\web\View;
 
 use Illuminate\Support\Collection;
+
 use Monolog\Formatter\LineFormatter;
 
 use Psr\Log\LogLevel;
 
+use vaersaagod\aimate\helpers\OpenAiHelper;
+use vaersaagod\aimate\models\Prompt;
 use vaersaagod\aimate\models\Settings;
-use vaersaagod\aimate\services\OpenAI;
 
 use yii\base\Event;
 
 /**
  * AIMate plugin
  *
- * @property OpenAI $openAI
  * @method static AIMate getInstance()
  * @method Settings getSettings()
  */
@@ -47,7 +47,6 @@ class AIMate extends Plugin
         return [
             'components' => [
                 // Define component configs here...
-                'openAI' => OpenAI::class,
             ],
         ];
     }
@@ -83,6 +82,12 @@ class AIMate extends Plugin
 
     private function attachEventHandlers(): void
     {
+
+        // Make sure there's an OpenAI key
+        if (!OpenAiHelper::getOpenAiApiKey()) {
+            return;
+        }
+
         // Register event handlers here ...
         // (see https://craftcms.com/docs/4.x/extend/events.html to get started)
 
@@ -104,7 +109,8 @@ class AIMate extends Plugin
                     return;
                 }
                 $prompts = $fieldConfig['prompts'] ?? null;
-                $buttonHtml = Craft::$app->view->renderTemplate('_aimate/button.twig', ['field' => $field, 'element' => $element, 'prompts' => $prompts,], View::TEMPLATE_MODE_CP);
+                $customPrompt = $fieldConfig['customPrompt'] ?? null;
+                $buttonHtml = Craft::$app->view->renderTemplate('_aimate/button.twig', ['field' => $field, 'element' => $element, 'prompts' => $prompts, 'customPrompt' => $customPrompt], View::TEMPLATE_MODE_CP);
                 if ($field instanceof \craft\ckeditor\Field) {
                     $event->html = str_replace('</textarea>', "</textarea>$buttonHtml", $event->html);
                 } else {
@@ -119,26 +125,31 @@ class AIMate extends Plugin
             FieldLayout::EVENT_CREATE_FORM,
             static function (CreateFieldLayoutFormEvent $event) {
                 $element = $event->element;
-                if (!$element instanceof ElementInterface) {
+                if ($event->static || !$element instanceof ElementInterface || $element->getIsRevision()) {
                     return;
                 }
                 $settings = AIMate::getInstance()->getSettings();
-                $fieldsConfig = $settings->fields;
-                if (!empty($fieldsConfig) && !in_array('title', array_keys($fieldsConfig))) {
+                $fieldsConfig = $settings->fields ?? [];
+                $titleFieldConfig = $fieldsConfig['title'] ?? $fieldsConfig['*'] ?? null;
+                if ($titleFieldConfig === false) {
                     return;
                 }
-                $prompts = $fieldsConfig['title']['prompts'] ?? null;
+                if (!is_array($titleFieldConfig)) {
+                    $titleFieldConfig = [];
+                }
+                $prompts = $titleFieldConfig['title']['prompts'] ?? null;
+                $customPrompt = $titleFieldConfig['title']['customPrompt'] ?? null;
                 Event::on(
                     View::class,
                     View::EVENT_AFTER_RENDER_TEMPLATE,
-                    static function (TemplateEvent $event) use ($element, $prompts) {
+                    static function (TemplateEvent $event) use ($element, $prompts, $customPrompt) {
                         if ($event->templateMode !== View::TEMPLATE_MODE_CP || $event->template !== '_includes/forms/text.twig') {
                             return;
                         }
                         if (!StringHelper::startsWith($event->output, '<input type="text" id="title" ')) {
                             return;
                         }
-                        $buttonHtml = Craft::$app->view->renderTemplate('_aimate/button.twig', ['field' => ['id' => 'title'], 'element' => $element, 'prompts' => $prompts], View::TEMPLATE_MODE_CP);
+                        $buttonHtml = Craft::$app->view->renderTemplate('_aimate/button.twig', ['field' => ['id' => 'title'], 'element' => $element, 'prompts' => $prompts, 'customPrompt' => $customPrompt], View::TEMPLATE_MODE_CP);
                         $event->output = $buttonHtml . $event->output;
                     }
                 );
@@ -196,14 +207,9 @@ class AIMate extends Plugin
         if (!$fieldHandle) {
             return null;
         }
-        // Look for config by field handle
-        $fieldConfig = $fieldsConfig[$fieldHandle] ?? null;
-        // Look for config by field type
-        if ($fieldConfig === null) {
-            $fieldType = get_class($field);
-            $fieldConfig = $fieldsConfig[$fieldType] ?? null;
-        }
-        if ($fieldConfig === null || $fieldConfig === false) {
+        // Look for config by field handle, field type, or a global config ("*")
+        $fieldConfig = $fieldsConfig[$fieldHandle] ?? $fieldsConfig[get_class($field)] ?? $fieldsConfig['*'] ?? null;
+        if ($fieldConfig === false) {
             return null;
         }
         return is_array($fieldConfig) ? $fieldConfig : [];

@@ -23,6 +23,9 @@ class Settings extends Model
     /** @var float|null */
     public ?float $maxWordsMultiplier = 1.5;
 
+    /** @var float|null */
+    public ?float $temperature = 0.7;
+
     /** @var array */
     public array $fields = [];
 
