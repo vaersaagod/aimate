@@ -2,7 +2,7 @@
     "name": "vaersaagod/aimate",
     "description": "Ai ai, mate.",
     "type": "craft-plugin",
-    "version": "1.0.0-alpha.4",
+    "version": "1.0.0-alpha.5",
     "require": {
         "php": "^8.1.0",
         "craftcms/cms": "^4.4.0",
