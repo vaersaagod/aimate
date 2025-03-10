@@ -188,7 +188,7 @@ class AIMate extends Plugin
      */
     private static function getFieldConfig(Field $field, ElementInterface $element): ?array
     {
-        $fieldsConfig = AIMate::getInstance()->getSettings()->fields;
+        $fieldsConfig = self::getInstance()->getSettings()->fields;
         if (empty($fieldsConfig)) {
             // They didn't configure anything, so anything goes!
             return [];
