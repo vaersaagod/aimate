@@ -15,7 +15,7 @@ class Settings extends Model
     public string $openAIApiKey;
 
     /** @var string */
-    public string $model = 'gpt-3.5-turbo';
+    public string $model = 'gpt-5-mini';
 
     /** @var PromptConfig[]|null  */
     public ?array $prompts = null;
@@ -28,6 +28,26 @@ class Settings extends Model
 
     /** @var array */
     public array $fields = [];
+        
+    /** @var string */
+    public string $altTextHandle = 'alt';
+    
+    /** @var bool */
+    public bool $useImagerIfInstalled = true;
+    
+    /** @var bool */
+    public bool $autoAltTextEnabled = true;
+    
+    /** @var int */
+    public int $thumbSize = 512; 
+
+    /** @var int */
+    public int $clientTimeout = 120;
+
+    /** @var string */
+    public string $base64EncodeImage = 'auto'; // always, never, auto
+
+
 
     /**
      * @param $values

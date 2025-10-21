@@ -2,6 +2,7 @@
 
 namespace vaersaagod\aimate\helpers;
 
+use GuzzleHttp\Client;
 use vaersaagod\aimate\AIMate;
 
 class OpenAiHelper
@@ -14,10 +15,19 @@ class OpenAiHelper
     public static function getClient(): \OpenAI\Client
     {
         $openAiApiKey = static::getOpenAiApiKey();
+
         if (!$openAiApiKey) {
             throw new \Exception('No OpenAI API key');
         }
-        return \OpenAI::client($openAiApiKey);
+        
+        $guzzleClient = new Client([
+            'timeout' => 300, 
+        ]);
+
+        return \OpenAI::factory()
+            ->withApiKey($openAiApiKey)
+            ->withHttpClient($guzzleClient)
+            ->make();
     }
 
     /**

@@ -3,12 +3,20 @@
 namespace vaersaagod\aimate;
 
 use Craft;
+use craft\base\Element;
 use craft\base\ElementInterface;
 use craft\base\Field;
+use craft\base\FieldLayoutElement;
 use craft\base\Model;
 use craft\base\Plugin;
+use craft\elements\Asset;
 use craft\events\CreateFieldLayoutFormEvent;
 use craft\events\DefineFieldHtmlEvent;
+use craft\events\DefineHtmlEvent;
+use craft\events\DefineMenuItemsEvent;
+use craft\events\ElementEvent;
+use craft\events\RegisterElementActionsEvent;
+use craft\events\ReplaceAssetEvent;
 use craft\events\TemplateEvent;
 use craft\fields\PlainText;
 use craft\fields\Table;
@@ -17,6 +25,8 @@ use craft\helpers\StringHelper;
 use craft\log\MonologTarget;
 use craft\models\FieldLayout;
 use craft\records\MatrixBlockType;
+use craft\services\Assets;
+use craft\services\Elements;
 use craft\web\View;
 
 use Illuminate\Support\Collection;
@@ -25,16 +35,22 @@ use Monolog\Formatter\LineFormatter;
 
 use Psr\Log\LogLevel;
 
+use vaersaagod\aimate\helpers\AiHelper;
+use vaersaagod\aimate\helpers\FieldHelper;
 use vaersaagod\aimate\helpers\OpenAiHelper;
 use vaersaagod\aimate\models\Prompt;
 use vaersaagod\aimate\models\Settings;
 
+use vaersaagod\aimate\services\AltTextService;
+use vaersaagod\aimate\actions\GenerateAltText;
+use vaersaagod\aimate\web\assets\AiMateAsset;
 use yii\base\Event;
 
 /**
  * AIMate plugin
  *
  * @method static AIMate getInstance()
+ * @property \vaersaagod\aimate\services\AltTextService $altText
  * @method Settings getSettings()
  */
 class AIMate extends Plugin
@@ -46,7 +62,7 @@ class AIMate extends Plugin
     {
         return [
             'components' => [
-                // Define component configs here...
+                'altText' => AltTextService::class,
             ],
         ];
     }
@@ -71,7 +87,6 @@ class AIMate extends Plugin
         // Defer most setup tasks until Craft is fully initialized
         Craft::$app->onInit(function () {
             $this->attachEventHandlers();
-            // ...
         });
     }
 
@@ -88,9 +103,84 @@ class AIMate extends Plugin
             return;
         }
 
-        // Register event handlers here ...
-        // (see https://craftcms.com/docs/4.x/extend/events.html to get started)
+        $settings = $this->getSettings();
 
+        // Element action
+        Event::on(
+            Asset::class,
+            Element::EVENT_REGISTER_ACTIONS,
+            function (RegisterElementActionsEvent $event) {
+                $event->actions[] = GenerateAltText::class;
+            }
+        );
+
+        // TBD: Should we check if the asset bundle is needed before loading?
+        Craft::$app->view->registerAssetBundle(AIMateAsset::class);
+
+        // Add AI field action to field layout elements
+        // We wrap this in a FieldLayout::EVENT_DEFINE_INPUT_HTML event to access the element (which unfortunately is not exposed for the new Field::EVENT_DEFINE_ACTION_MENU_ITEMS event in Craft 5.7)
+        Event::on(
+            Field::class,
+            Field::EVENT_DEFINE_INPUT_HTML,
+            static function (DefineFieldHtmlEvent $event) use ($settings) {
+                if (!$event->sender instanceof Field || $event->static || $event->inline) {
+                    return;
+                }
+
+                $element = $event->element;
+                if (!$element instanceof ElementInterface) {
+                    return;
+                }
+
+                $layoutElement = $event->sender->layoutElement;
+                if (!$layoutElement instanceof FieldLayoutElement) {
+                    return;
+                }
+                
+                $field = $event->sender;
+
+                Event::on(
+                    Field::class,
+                    Field::EVENT_DEFINE_ACTION_MENU_ITEMS,
+                    static function (DefineMenuItemsEvent $event) use ($settings, $element, $layoutElement, $field) {
+                        if ($event->sender?->layoutElement->uid !== $layoutElement->uid) {
+                            return;
+                        }
+
+                        if (!FieldHelper::isFieldSupported($field)) {
+                            return;
+                        }
+                        
+                        $promptActions = AiHelper::getFieldPromptActions($layoutElement, $element, $field);
+                        
+                        $event->items = array_filter([...$event->items, ...$promptActions]);
+                    }
+                );
+            }
+        );
+        
+        // Monkey-patched in AI field actions for native fields; title and alt
+        // This is a (hopefully) temporary fix – https://github.com/craftcms/cms/discussions/16779
+        Event::on(
+            FieldLayout::class,
+            FieldLayout::EVENT_CREATE_FORM,
+            static function (CreateFieldLayoutFormEvent $event) {
+                if ($event->static) {
+                    return;
+                }
+
+                foreach ($event->tabs as $tab) {
+                    if (empty($tab->elements)) {
+                        return;
+                    }
+                    //$tab->elements = array_map([TranslateHelper::class, 'getTranslatableFieldLayoutElement'], $tab->elements);
+                }
+            }
+        );
+        
+
+
+        /*
         // Add AIMate buttons to custom fields
         Event::on(
             Field::class,
@@ -155,64 +245,53 @@ class AIMate extends Plugin
                 );
             }
         );
+        */
+        
+        // Alt text button
+        Event::on(
+            Element::class,
+            Element::EVENT_DEFINE_ADDITIONAL_BUTTONS,
+            function (DefineHtmlEvent $event) {
+                $element = $event->sender;
 
-    }
+                if (!($element instanceof Asset && $element->kind === Asset::KIND_IMAGE)) {
+                    return;
+                }
 
-    /**
-     * @param Field $field
-     * @return bool
-     */
-    private static function isFieldSupported(Field $field): bool
-    {
-        // Only a subset of field types are supported
-        if (!in_array(get_class($field), [
-                PlainText::class,
-                Table::class,
-                \craft\ckeditor\Field::class,
-                \craft\redactor\Field::class,
-            ], true)) {
-            return false;
-        }
-        // Tables are tricky. Let's make sure it has at least one textual column
-        if ($field instanceof Table && !Collection::make($field->getSettings()['columns'] ?? [])->first(static fn (array $column) => in_array($column['type'], ['singleline', 'multiline'], true))) {
-            return false;
-        }
-        return true;
-    }
+                $template = Craft::$app->getView()->renderTemplate('_aimate/generate-alt-text-button.twig', [
+                    'element' => $element,
+                    'pluginSettings' => $this->getSettings()
+                ]);
 
-    /**
-     * @param Field $field
-     * @param ElementInterface $element
-     * @return array|null
-     * @throws \yii\base\InvalidConfigException
-     */
-    private static function getFieldConfig(Field $field, ElementInterface $element): ?array
-    {
-        $fieldsConfig = self::getInstance()->getSettings()->fields;
-        if (empty($fieldsConfig)) {
-            // They didn't configure anything, so anything goes!
-            return [];
-        }
-        $fieldHandle = null;
-        if ($field->context !== 'global') {
-            $contextParts = explode(':', $field->context);
-            if ($contextParts[0] ?? null === 'matrixBlockType' && !empty($contextParts[1])) {
-                $matrixBlockType = \Craft::$app->getMatrix()->getBlockTypeById(Db::idByUid(MatrixBlockType::tableName(), $contextParts[1]));
-                $matrixField = $matrixBlockType->getField();
-                $fieldHandle = $matrixField->handle . '.' . $matrixBlockType->handle . ':' . $field->handle;
+                $event->html .= $template;
             }
-        } else {
-            $fieldHandle = $field->handle;
-        }
-        if (!$fieldHandle) {
-            return null;
-        }
-        // Look for config by field handle, field type, or a global config ("*")
-        $fieldConfig = $fieldsConfig[$fieldHandle] ?? $fieldsConfig[get_class($field)] ?? $fieldsConfig['*'] ?? null;
-        if ($fieldConfig === false) {
-            return null;
-        }
-        return is_array($fieldConfig) ? $fieldConfig : [];
-    }
+        );
+        
 
+        if ($settings->autoAltTextEnabled) {
+            Event::on(Elements::class,
+                Elements::EVENT_AFTER_SAVE_ELEMENT,
+                static function (ElementEvent $event) {
+                    /** @var \craft\base\Element $element */
+                    $element = $event->element;
+
+                    if ($element instanceof Asset && $element->kind === Asset::KIND_IMAGE && $element->isNewForSite && $element->getScenario() !== Asset::SCENARIO_INDEX) {
+                        if (!self::getInstance()->altText->hasAltText($element)) {
+                            self::getInstance()->altText->createGenerateAltTextJob($element);
+                        }
+                    }
+                }
+            );
+
+            Event::on(Assets::class,
+                Assets::EVENT_AFTER_REPLACE_ASSET,
+                static function (ReplaceAssetEvent $event) {
+                    if (!self::getInstance()->altText->hasAltText($event->asset)) {
+                        self::getInstance()->altText->createGenerateAltTextJob($event->asset);
+                    }
+                }
+            );
+        }
+    }
+    
 }

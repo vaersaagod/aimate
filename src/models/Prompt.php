@@ -59,7 +59,6 @@ class Prompt extends Model
      */
     public function getPrompt(): string
     {
-
         // Get template
         $template = $this->config->template;
 
@@ -117,16 +116,21 @@ class Prompt extends Model
     public function getMaxWords(): ?int
     {
         $maxWords = $this->config->maxWords;
+        
         if (empty($maxWords) && $maxWords !== false && !empty($this->text)) {
             $maxWords = StringHelper::countWords($this->text);
         }
+        
         if (!$maxWords) {
             return null;
         }
+        
         $multiplier = $this->config->maxWordsMultiplier ?? AIMate::getInstance()->getSettings()->maxWordsMultiplier;
+        
         if (!empty($multiplier)) {
             return round($maxWords * $multiplier);
         }
+        
         return $maxWords;
     }
 
@@ -157,12 +161,14 @@ class Prompt extends Model
         $prompt = $this->getPrompt();
         $params = [
             'model' => $this->getModel(),
-            'temperature' => $this->getTemperature(),
+            //'temperature' => $this->getTemperature(),
             'messages' => [
                 ['role' => 'user', 'content' => $prompt],
             ],
         ];
+        
         $result = $client->chat()->create($params);
+        
         $response = Collection::make($result['choices'] ?? [])
             ->first(static fn(array $choice) => $choice['finish_reason'] === 'stop' && !empty($choice['message']['content'] ?? null));
         if (!$response) {

@@ -2,6 +2,7 @@
 
 namespace vaersaagod\aimate\controllers;
 
+use craft\elements\Asset;
 use craft\elements\Entry;
 use craft\web\Controller;
 
@@ -18,7 +19,7 @@ class DefaultController extends Controller
 {
 
     /** @var array|bool|int */
-    public array|bool|int $allowAnonymous = true; // TODO remove this
+    public array|bool|int $allowAnonymous = false; // TBD: is ok?
 
     /** @var bool */
     public $enableCsrfValidation = false;
@@ -31,7 +32,6 @@ class DefaultController extends Controller
      */
     public function actionDoPrompt(): ?Response
     {
-
         $this->requirePostRequest();
         $this->requireAcceptsJson();
 
@@ -64,7 +64,6 @@ class DefaultController extends Controller
      */
     private function _getPromptFromRequest(): Prompt
     {
-
         $settings = AIMate::getInstance()->getSettings();
         $textInput = trim($this->request->getBodyParam('text', ''));
 
@@ -127,5 +126,52 @@ class DefaultController extends Controller
         return $prompt;
 
     }
+
+
+    public function actionGenerateAltText()
+    {
+        $this->requirePostRequest();
+        $this->requireAcceptsJson();
+
+        $elementId = (int)$this->request->getBodyParam('elementId');
+        $siteId = (int)$this->request->getBodyParam('siteId');
+
+        $element = Asset::find()->id($elementId)->siteId($siteId)->one();
+        
+        try {
+            $result = AIMate::getInstance()->altText->generateAltTextForAsset($element);
+        } catch (\Throwable $e) {
+            \Craft::error($e, __METHOD__);
+            return $this->asFailure(message: $e->getMessage());
+        }
+        
+        // TODO : Needs to be more robust
+        return $result ? $this->asSuccess() : $this->asFailure();
+    }
+    
+    public function actionGenerateAltTextJobs()
+    {
+        $this->requirePostRequest();
+        $this->requireAcceptsJson();
+
+        $elementIds = explode(',', $this->request->getBodyParam('elementIds'));
+        $siteId = $this->request->getBodyParam('siteId');
+
+        
+        try {
+            foreach ($elementIds as $elementId) {
+                $element = Asset::find()->id((int)$elementId)->siteId((int)$siteId)->one();
+                AIMate::getInstance()->altText->createGenerateAltTextJob($element, true);
+                
+            }
+        } catch (\Throwable $e) {
+            \Craft::error($e, __METHOD__);
+            return $this->asFailure(message: $e->getMessage());
+        }
+        
+        return $this->asSuccess(\Craft::t('_aimate', 'Alt text generation jobs queued'));
+    }
+    
+    
 
 }
