@@ -114,8 +114,9 @@ class AIMate extends Plugin
             }
         );
 
-        // TBD: Should we check if the asset bundle is needed before loading?
-        Craft::$app->view->registerAssetBundle(AIMateAsset::class);
+        if (Craft::$app->getRequest()->getIsCpRequest()) {
+            Craft::$app->view->registerAssetBundle(AIMateAsset::class);
+        }
 
         // Add AI field action to field layout elements
         // We wrap this in a FieldLayout::EVENT_DEFINE_INPUT_HTML event to access the element (which unfortunately is not exposed for the new Field::EVENT_DEFINE_ACTION_MENU_ITEMS event in Craft 5.7)
