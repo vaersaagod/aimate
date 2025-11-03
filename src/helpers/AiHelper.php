@@ -27,7 +27,7 @@ class AiHelper
             $r[] = [
                 'id' => 'aimate-prompt-field-' . $fieldLayoutElement->uid,
                 'icon' => 'wand',
-                'label' => \Craft::t('transmate', $prompt->name),
+                'label' => \Craft::t('_aimate', $prompt->name),
                 'attributes' => [
                     'data' => [
                         'aimate-prompt-button' => true,
