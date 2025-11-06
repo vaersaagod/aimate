@@ -10,40 +10,28 @@ use craft\base\FieldLayoutElement;
 use craft\base\Model;
 use craft\base\Plugin;
 use craft\elements\Asset;
-use craft\events\CreateFieldLayoutFormEvent;
 use craft\events\DefineFieldHtmlEvent;
 use craft\events\DefineHtmlEvent;
 use craft\events\DefineMenuItemsEvent;
 use craft\events\ElementEvent;
 use craft\events\RegisterElementActionsEvent;
 use craft\events\ReplaceAssetEvent;
-use craft\events\TemplateEvent;
-use craft\fields\PlainText;
-use craft\fields\Table;
-use craft\helpers\Db;
-use craft\helpers\StringHelper;
+use craft\fieldlayoutelements\BaseNativeField;
 use craft\log\MonologTarget;
 use craft\models\FieldLayout;
-use craft\records\MatrixBlockType;
 use craft\services\Assets;
 use craft\services\Elements;
-use craft\web\View;
-
-use Illuminate\Support\Collection;
 
 use Monolog\Formatter\LineFormatter;
 
 use Psr\Log\LogLevel;
 
-use vaersaagod\aimate\helpers\AiHelper;
 use vaersaagod\aimate\helpers\FieldHelper;
 use vaersaagod\aimate\helpers\OpenAiHelper;
-use vaersaagod\aimate\models\Prompt;
 use vaersaagod\aimate\models\Settings;
-
 use vaersaagod\aimate\services\AltTextService;
 use vaersaagod\aimate\actions\GenerateAltText;
-use vaersaagod\aimate\web\assets\AiMateAsset;
+
 use yii\base\Event;
 
 /**
@@ -114,17 +102,19 @@ class AIMate extends Plugin
             }
         );
 
-        if (Craft::$app->getRequest()->getIsCpRequest()) {
-            Craft::$app->view->registerAssetBundle(AIMateAsset::class);
+        if (Craft::$app->getRequest()->getIsCpRequest() && !Craft::$app->getRequest()->getIsLoginRequest()) {
+            Craft::$app->view->registerAssetBundle(AiMateBundle::class);
         }
 
         // Add AI field action to field layout elements
         // We wrap this in a FieldLayout::EVENT_DEFINE_INPUT_HTML event to access the element (which unfortunately is not exposed for the new Field::EVENT_DEFINE_ACTION_MENU_ITEMS event in Craft 5.7)
+        // This only works for custom fields!
         Event::on(
             Field::class,
             Field::EVENT_DEFINE_INPUT_HTML,
-            static function (DefineFieldHtmlEvent $event) use ($settings) {
-                if (!$event->sender instanceof Field || $event->static || $event->inline) {
+            static function (DefineFieldHtmlEvent $event) {
+                $field = $event->sender;
+                if (!$field instanceof Field || $event->static || $event->inline) {
                     return;
                 }
 
@@ -133,56 +123,69 @@ class AIMate extends Plugin
                     return;
                 }
 
-                $layoutElement = $event->sender->layoutElement;
+                $layoutElement = $field->layoutElement;
                 if (!$layoutElement instanceof FieldLayoutElement) {
                     return;
                 }
-                
-                $field = $event->sender;
 
                 Event::on(
                     Field::class,
                     Field::EVENT_DEFINE_ACTION_MENU_ITEMS,
-                    static function (DefineMenuItemsEvent $event) use ($settings, $element, $layoutElement, $field) {
+                    static function (DefineMenuItemsEvent $event) use ($element, $layoutElement) {
                         if ($event->sender?->layoutElement->uid !== $layoutElement->uid) {
                             return;
                         }
 
-                        if (!FieldHelper::isFieldSupported($field)) {
+                        $promptActions = FieldHelper::getFieldPromptActions($layoutElement, $element);
+                        if (empty($promptActions)) {
                             return;
                         }
-                        
-                        $promptActions = AiHelper::getFieldPromptActions($layoutElement, $element, $field);
-                        
-                        $event->items = array_filter([...$event->items, ...$promptActions]);
+
+                        // Try to put the prompt actions before the "Field settings" action, if it exists
+                        $fieldSettingsActionIndex = array_search(true, array_map(fn($id) => str_starts_with($id, 'action-edit-'), array_column($event->items, 'id')));
+                        if ($fieldSettingsActionIndex !== false) {
+                            array_splice($event->items, $fieldSettingsActionIndex, 0, $promptActions);
+                        } else {
+                            $event->items = [...$event->items, ...$promptActions];
+                        }
                     }
                 );
             }
         );
-        
+
         // Monkey-patched in AI field actions for native fields; title and alt
         // This is a (hopefully) temporary fix – https://github.com/craftcms/cms/discussions/16779
         Event::on(
             FieldLayout::class,
-            FieldLayout::EVENT_CREATE_FORM,
-            static function (CreateFieldLayoutFormEvent $event) {
-                if ($event->static) {
-                    return;
-                }
-
-                foreach ($event->tabs as $tab) {
+            Model::EVENT_INIT,
+            static function (Event $event) {
+                $fieldLayout = &$event->sender;
+                foreach ($fieldLayout->tabs as $tab) {
                     if (empty($tab->elements)) {
                         return;
                     }
-                    //$tab->elements = array_map([TranslateHelper::class, 'getTranslatableFieldLayoutElement'], $tab->elements);
+                    $tab->elements = array_map([FieldHelper::class, 'getPromptableFieldLayoutElement'], $tab->elements);
                 }
             }
         );
-        
 
+        // This would never fire if not for the monkey patch above
+        Event::on(
+            BaseNativeField::class,
+            'eventDefineNativeFieldActionMenuItems',
+            static function (DefineMenuItemsEvent $event) {
+                if (!empty($event->static) || !property_exists($event, 'element')) {
+                    return;
+                }
+                /** @var FieldLayoutElement $layoutElement */
+                $layoutElement = $event->sender;
+                $promptActions = FieldHelper::getFieldPromptActions($layoutElement, $event->element);
+                $event->items = array_filter([...$event->items, ...$promptActions]);
+            }
+        );
 
         /*
-        // Add AIMate buttons to custom fields
+         Add AIMate buttons to custom fields
         Event::on(
             Field::class,
             Field::EVENT_DEFINE_INPUT_HTML,
@@ -247,7 +250,7 @@ class AIMate extends Plugin
             }
         );
         */
-        
+
         // Alt text button
         Event::on(
             Element::class,
@@ -267,7 +270,7 @@ class AIMate extends Plugin
                 $event->html .= $template;
             }
         );
-        
+
 
         if ($settings->autoAltTextEnabled) {
             Event::on(Elements::class,
@@ -294,5 +297,5 @@ class AIMate extends Plugin
             );
         }
     }
-    
+
 }

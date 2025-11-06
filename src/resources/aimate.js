@@ -1,21 +1,19 @@
-import CustomPromptModal from "./components/CustomPromptModal.js";
+// import CustomPromptModal from '../../build/src/components/CustomPromptModal';
+//
+// let customPromptModal;
 
-import './aimate.scss';
+$(document).ready(() => {
+    const onFieldActionPromptClick = async e => {
+        console.log('AIMate :: onFieldActionPromptClick!!!!');
 
-$(() => {
-
-    let customPromptModal;
-
-    const onPromptClick = async e => {
-        console.log('AIMate :: onPromptClick');
         //e.preventDefault();
 
         const { currentTarget: promptLink } = e;
 
-        const { field: fieldId, element: elementId, site: siteId, layoutElement: layoutElementUid } = promptLink.dataset;
+        const { element: elementId, site: siteId, layoutElement: layoutElementUid } = promptLink.dataset;
         const field = $('body').find('.field[data-layout-element="' + layoutElementUid + '"]');
 
-        if (field.length === 0) {
+        if (!field.length) {
             Craft.cp.displayError('Field not found');
             return;
         }
@@ -39,15 +37,15 @@ $(() => {
         let params = {};
 
         if (promptLink.hasAttribute('data-custom')) {
-            if (!customPromptModal) {
-                customPromptModal = new CustomPromptModal();
-            }
-            customPromptModal.show();
-            const customPrompt = await customPromptModal.getText();
-            if (!customPrompt) {
-                return;
-            }
-            params.custom = customPrompt;
+            // if (!customPromptModal) {
+            //     customPromptModal = new CustomPromptModal();
+            // }
+            // customPromptModal.show();
+            // const customPrompt = await customPromptModal.getText();
+            // if (!customPrompt) {
+            //     return;
+            // }
+            // params.custom = customPrompt;
         } else {
             const { prompt } = promptLink.dataset;
 
@@ -74,7 +72,18 @@ $(() => {
             };
         }
 
-        //menuButton.classList.add('loading');
+        const fieldActionsMenuButton = field.find('button.btn.menubtn.action-btn[data-disclosure-trigger]')
+        if (fieldActionsMenuButton) {
+            if (!fieldActionsMenuButton.find('.spinner').length) {
+                fieldActionsMenuButton.append('<span class="spinner spinner-absolute" style="--size:80%;"/>');
+            }
+            fieldActionsMenuButton.addClass('loading');
+            if (fieldActionsMenuButton.data('disclosureMenu')) {
+                fieldActionsMenuButton.data('disclosureMenu').hide();
+            }
+            fieldActionsMenuButton.focus();
+        }
+
         Craft.sendActionRequest(
             'POST',
             '_aimate/default/do-prompt',
@@ -122,18 +131,17 @@ $(() => {
         }).catch(error => {
             console.error(error);
         }).then(() => {
-            //menuButton.classList.remove('loading');
+            if (fieldActionsMenuButton) {
+                fieldActionsMenuButton.removeClass('loading');
+            }
             input.focus();
         });
     };
 
     const onGenerateAltTextClick = e => {
-        console.log('AIMate :: onGenerateAltTextClick');
-
         e.preventDefault();
 
         const { currentTarget: generateButton } = e;
-        console.log(generateButton.dataset);
         const { element: elementId, site: siteId } = generateButton.dataset;
 
         const params = {
@@ -141,8 +149,6 @@ $(() => {
             siteId
         };
 
-        console.log(params);
-        
         generateButton.classList.add('loading');
 
         Craft.sendActionRequest(
@@ -189,8 +195,6 @@ $(() => {
     };
     */
 
-    console.log('AIMate :: init');
-
     /*
     $('.field table.editable tbody tr').each(function () {
         initTableRow($(this));
@@ -203,12 +207,7 @@ $(() => {
     };
     */
 
-    $('body').on('click', '[data-aimate-prompt-button]', onPromptClick);
+    $('body').on('click', '[data-aimate-prompt-button]', onFieldActionPromptClick);
     $('body').on('click', '[data-aimate-generate-alt-text-button]', onGenerateAltTextClick);
 
 });
-
-// Accept HMR as per: https://vitejs.dev/guide/api-hmr.html
-if (import.meta.hot) {
-    import.meta.hot.accept();
-}

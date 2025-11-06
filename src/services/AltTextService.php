@@ -6,9 +6,11 @@ use craft\base\Component;
 use craft\elements\Asset;
 use craft\helpers\App;
 use craft\helpers\UrlHelper;
+
 use Illuminate\Support\Collection;
-use OpenAI\Client;
+
 use spacecatninja\imagerx\ImagerX;
+
 use vaersaagod\aimate\AIMate;
 use vaersaagod\aimate\helpers\OpenAiHelper;
 use vaersaagod\aimate\jobs\GenerateAltTextJob;
