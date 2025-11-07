@@ -136,14 +136,14 @@ class AIMate extends Plugin
                             return;
                         }
 
+                        // Filter out any existing prompt actions
+                        $event->items = array_filter($event->items, static fn (array $action) => empty($action['attributes']['data']['aimate-prompt-button']));
+
                         // Get prompt actions for this field
                         $promptActions = FieldHelper::getFieldPromptActions($layoutElement, $element);
                         if (empty($promptActions)) {
                             return;
                         }
-
-                        // Filter out any existing prompt actions
-                        $event->items = array_filter($event->items, static fn (array $action) => empty($action['attributes']['data']['aimate-prompt-button']));
 
                         // Try to put the prompt actions before the "Field settings" action, if it exists
                         $fieldSettingsActionIndex = array_search(true, array_map(fn($id) => str_starts_with($id, 'action-edit-'), array_column($event->items, 'id')));
