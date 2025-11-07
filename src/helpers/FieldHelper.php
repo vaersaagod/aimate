@@ -24,14 +24,14 @@ use vaersaagod\aimate\models\PromptConfig;
 class FieldHelper
 {
     /** @var array|string[] */
-    private const array SUPPORTED_NATIVE_FIELDS = [
+    private const SUPPORTED_NATIVE_FIELDS = [
         EntryTitleField::class,
         AssetTitleField::class,
         AltField::class,
     ];
 
     /** @var array|string[] */
-    private const array SUPPORTED_CUSTOM_FIELD_TYPES = [
+    private const SUPPORTED_CUSTOM_FIELD_TYPES = [
         PlainText::class,
         Table::class,
         HtmlField::class,
