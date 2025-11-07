@@ -4,29 +4,28 @@
 
 $(document).ready(() => {
     const onFieldActionPromptClick = async e => {
-        console.log('AIMate :: onFieldActionPromptClick!!!!');
+        const { currentTarget: promptButton } = e;
 
-        //e.preventDefault();
-
-        const { currentTarget: promptLink } = e;
-
-        const { element: elementId, site: siteId, layoutElement: layoutElementUid } = promptLink.dataset;
-        const field = $('body').find('.field[data-layout-element="' + layoutElementUid + '"]');
-
-        if (!field.length) {
+        // Get field
+        const { element: elementId, site: siteId } = promptButton.dataset;
+        const $fieldActionsMenuTrigger = $(promptButton)
+            .closest('.menu')
+            .data('disclosureMenu')
+            ?.$trigger;
+        const $field = $fieldActionsMenuTrigger ? $fieldActionsMenuTrigger.closest('.field') : null;
+        if (!$field.length) {
             Craft.cp.displayError('Field not found');
             return;
         }
 
-        const { type: fieldType } = field.get(0).dataset;
+        const fieldType = $field.data('type');
 
         let input;
-
         if (fieldType === 'craft\\fields\\Table') {
             // Does not work yet
             // input = menuButton.closest('td.textual').querySelector('input,textarea');
         } else {
-            input = field.find('.input input,textarea').get(0);
+            input = $field.find('.input input,textarea').get(0);
         }
 
         if (!input) {
@@ -34,9 +33,16 @@ $(document).ready(() => {
             return;
         }
 
+        const inputValue = input.value;
+        if (!inputValue.trim().length) {
+            $fieldActionsMenuTrigger.data('disclosureMenu')?.hide();
+            $fieldActionsMenuTrigger.focus();
+            return;
+        }
+
         let params = {};
 
-        if (promptLink.hasAttribute('data-custom')) {
+        if (promptButton.hasAttribute('data-custom')) {
             // if (!customPromptModal) {
             //     customPromptModal = new CustomPromptModal();
             // }
@@ -47,7 +53,7 @@ $(document).ready(() => {
             // }
             // params.custom = customPrompt;
         } else {
-            const { prompt } = promptLink.dataset;
+            const { prompt } = promptButton.dataset;
 
             if (!prompt) {
                 Craft.cp.displayError('No prompt');
@@ -72,24 +78,20 @@ $(document).ready(() => {
             };
         }
 
-        const fieldActionsMenuButton = field.find('button.btn.menubtn.action-btn[data-disclosure-trigger]')
-        if (fieldActionsMenuButton) {
-            if (!fieldActionsMenuButton.find('.spinner').length) {
-                fieldActionsMenuButton.append('<span class="spinner spinner-absolute" style="--size:80%;"/>');
-            }
-            fieldActionsMenuButton.addClass('loading');
-            if (fieldActionsMenuButton.data('disclosureMenu')) {
-                fieldActionsMenuButton.data('disclosureMenu').hide();
-            }
-            fieldActionsMenuButton.focus();
+        // Add a spinner to the field actions disclosure menu trigger, if it doesn't have one
+        if (!$fieldActionsMenuTrigger.find('.spinner').length) {
+            $fieldActionsMenuTrigger.append('<span class="spinner spinner-absolute" style="--size:80%;"/>');
         }
+        $fieldActionsMenuTrigger.addClass('loading');
+        $fieldActionsMenuTrigger.data('disclosureMenu')?.hide();
+        $fieldActionsMenuTrigger.focus();
 
         Craft.sendActionRequest(
             'POST',
             '_aimate/default/do-prompt',
             {
                 data: {
-                    text: input.value,
+                    text: inputValue,
                     ...params
                 }
             }
@@ -131,9 +133,7 @@ $(document).ready(() => {
         }).catch(error => {
             console.error(error);
         }).then(() => {
-            if (fieldActionsMenuButton) {
-                fieldActionsMenuButton.removeClass('loading');
-            }
+            $fieldActionsMenuTrigger.removeClass('loading');
             input.focus();
         });
     };

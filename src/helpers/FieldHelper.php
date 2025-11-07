@@ -12,7 +12,6 @@ use craft\fieldlayoutelements\CustomField;
 use craft\fieldlayoutelements\entries\EntryTitleField;
 use craft\fields\PlainText;
 use craft\fields\Table;
-use craft\helpers\StringHelper;
 use craft\htmlfield\HtmlField;
 
 use Illuminate\Support\Collection;
@@ -109,27 +108,27 @@ class FieldHelper
     }
 
     /**
-     * This method is used to monkey-patch in a custom event for certain native fields
+     * This method is used to monkey-patch in a custom event for certain native fields, to let us add field actions to them
      *
      * @param FieldLayoutElement $fieldLayoutElement
      * @return FieldLayoutElement
      */
     public static function getPromptableFieldLayoutElement(FieldLayoutElement $fieldLayoutElement): FieldLayoutElement
     {
-        $nativeFieldMapping = [
-            EntryTitleField::class => fn($attrs) => new class($attrs) extends EntryTitleField {
+        $nativeFieldClassMapping = [
+            EntryTitleField::class => fn($config) => new class($config) extends EntryTitleField {
                 use NativeFieldActionsEventTrait;
             },
-            AssetTitleField::class => fn($attrs) => new class($attrs) extends AssetTitleField {
+            AssetTitleField::class => fn($config) => new class($config) extends AssetTitleField {
                 use NativeFieldActionsEventTrait;
             },
-            AltField::class => fn($attrs) => new class($attrs) extends AltField {
+            AltField::class => fn($config) => new class($config) extends AltField {
                 use NativeFieldActionsEventTrait;
             },
         ];
 
-        foreach ($nativeFieldMapping as $type => $factory) {
-            if ($fieldLayoutElement instanceof $type) {
+        foreach ($nativeFieldClassMapping as $className => $factory) {
+            if ($fieldLayoutElement instanceof $className) {
                 return $factory($fieldLayoutElement->getAttributes());
             }
         }
@@ -153,7 +152,6 @@ class FieldHelper
         // Get prompts from field config or settings
         $prompts = $fieldConfig['prompts'] ?? $settings->prompts ?? [];
 
-        $namespace = Craft::$app->getView()->getNamespace();
         $label = $fieldLayoutElement->label();
         if ($label === '__blank__') {
             $label = null;
@@ -169,11 +167,7 @@ class FieldHelper
                     'prompt' => $prompt->handle,
                     'element' => $element?->id ?? false,
                     'site' => $element?->siteId ?? false,
-                    'layout-element' => $fieldLayoutElement->uid,
                     'label' => $label ?: Craft::t('app', 'Field'),
-                    'namespace' => ($namespace && $namespace !== 'fields')
-                        ? StringHelper::removeRight($namespace, '[fields]')
-                        : null,
                 ],
             ],
         ], $prompts);
