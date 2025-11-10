@@ -18,6 +18,7 @@ use craft\events\RegisterElementActionsEvent;
 use craft\events\ReplaceAssetEvent;
 use craft\fieldlayoutelements\BaseNativeField;
 use craft\helpers\Cp;
+use craft\helpers\ElementHelper;
 use craft\log\MonologTarget;
 use craft\models\FieldLayout;
 use craft\services\Assets;
@@ -121,7 +122,7 @@ class AIMate extends Plugin
                 }
 
                 $element = $event->element;
-                if (!$element instanceof ElementInterface) {
+                if (!$element instanceof ElementInterface || ElementHelper::isRevision($element)) {
                     return;
                 }
 
@@ -196,7 +197,7 @@ class AIMate extends Plugin
             Element::EVENT_DEFINE_ADDITIONAL_BUTTONS,
             function (DefineHtmlEvent $event) {
                 $element = $event->sender;
-                if (!$element instanceof ElementInterface) {
+                if (!$element instanceof ElementInterface || ElementHelper::isRevision($element) || $event->static) {
                     return;
                 }
 
