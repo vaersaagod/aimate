@@ -17,6 +17,7 @@ use craft\events\ElementEvent;
 use craft\events\RegisterElementActionsEvent;
 use craft\events\ReplaceAssetEvent;
 use craft\fieldlayoutelements\BaseNativeField;
+use craft\helpers\Cp;
 use craft\log\MonologTarget;
 use craft\models\FieldLayout;
 use craft\services\Assets;
@@ -26,6 +27,7 @@ use Monolog\Formatter\LineFormatter;
 
 use Psr\Log\LogLevel;
 
+use vaersaagod\aimate\helpers\CpHelper;
 use vaersaagod\aimate\helpers\FieldHelper;
 use vaersaagod\aimate\helpers\OpenAiHelper;
 use vaersaagod\aimate\models\Settings;
@@ -38,7 +40,7 @@ use yii\base\Event;
  * AIMate plugin
  *
  * @method static AIMate getInstance()
- * @property \vaersaagod\aimate\services\AltTextService $altText
+ * @property AltTextService $altText
  * @method Settings getSettings()
  */
 class AIMate extends Plugin
@@ -137,10 +139,10 @@ class AIMate extends Plugin
                         }
 
                         // Filter out any existing prompt actions
-                        $event->items = array_filter($event->items, static fn (array $action) => empty($action['attributes']['data']['aimate-prompt-button']));
+                        $event->items = array_filter($event->items, static fn (array $action) => empty($action['attributes']['data']['aimate-field-action']));
 
                         // Get prompt actions for this field
-                        $promptActions = FieldHelper::getFieldPromptActions($layoutElement, $element);
+                        $promptActions = FieldHelper::getFieldActions($layoutElement, $element);
                         if (empty($promptActions)) {
                             return;
                         }
@@ -183,95 +185,34 @@ class AIMate extends Plugin
                 }
                 /** @var FieldLayoutElement $layoutElement */
                 $layoutElement = $event->sender;
-                $promptActions = FieldHelper::getFieldPromptActions($layoutElement, $event->element);
+                $promptActions = FieldHelper::getFieldActions($layoutElement, $event->element);
                 $event->items = array_filter([...$event->items, ...$promptActions]);
             }
         );
 
-        /*
-         Add AIMate buttons to custom fields
-        Event::on(
-            Field::class,
-            Field::EVENT_DEFINE_INPUT_HTML,
-            static function (DefineFieldHtmlEvent $event) {
-                $element = $event->element;
-                if ($event->static || !$element instanceof ElementInterface || $element->getIsRevision()) {
-                    return;
-                }
-                $field = $event->sender;
-                if (!$field instanceof Field || !static::isFieldSupported($field)) {
-                    return;
-                }
-                $fieldConfig = static::getFieldConfig($field, $element);
-                if ($fieldConfig === null) {
-                    return;
-                }
-                $prompts = $fieldConfig['prompts'] ?? null;
-                $customPrompt = $fieldConfig['customPrompt'] ?? null;
-                $buttonHtml = Craft::$app->view->renderTemplate('_aimate/button.twig', ['field' => $field, 'element' => $element, 'prompts' => $prompts, 'customPrompt' => $customPrompt], View::TEMPLATE_MODE_CP);
-                if ($field instanceof \craft\ckeditor\Field) {
-                    $event->html = str_replace('</textarea>', "</textarea>$buttonHtml", $event->html);
-                } else {
-                    $event->html = $buttonHtml . $event->html;
-                }
-            }
-        );
-
-        // Add a button to the title field as well (this is pretty hacky but YOLO)
-        Event::on(
-            FieldLayout::class,
-            FieldLayout::EVENT_CREATE_FORM,
-            static function (CreateFieldLayoutFormEvent $event) {
-                $element = $event->element;
-                if ($event->static || !$element instanceof ElementInterface || $element->getIsRevision()) {
-                    return;
-                }
-                $settings = AIMate::getInstance()->getSettings();
-                $fieldsConfig = $settings->fields ?? [];
-                $titleFieldConfig = $fieldsConfig['title'] ?? $fieldsConfig['*'] ?? null;
-                if ($titleFieldConfig === false) {
-                    return;
-                }
-                if (!is_array($titleFieldConfig)) {
-                    $titleFieldConfig = [];
-                }
-                $prompts = $titleFieldConfig['title']['prompts'] ?? null;
-                $customPrompt = $titleFieldConfig['title']['customPrompt'] ?? null;
-                Event::on(
-                    View::class,
-                    View::EVENT_AFTER_RENDER_TEMPLATE,
-                    static function (TemplateEvent $event) use ($element, $prompts, $customPrompt) {
-                        if ($event->templateMode !== View::TEMPLATE_MODE_CP || $event->template !== '_includes/forms/text.twig') {
-                            return;
-                        }
-                        if (!StringHelper::startsWith($event->output, '<input type="text" id="title" ')) {
-                            return;
-                        }
-                        $buttonHtml = Craft::$app->view->renderTemplate('_aimate/button.twig', ['field' => ['id' => 'title'], 'element' => $element, 'prompts' => $prompts, 'customPrompt' => $customPrompt], View::TEMPLATE_MODE_CP);
-                        $event->output = $buttonHtml . $event->output;
-                    }
-                );
-            }
-        );
-        */
-
-        // Alt text button
+        // "AI" button
         Event::on(
             Element::class,
             Element::EVENT_DEFINE_ADDITIONAL_BUTTONS,
             function (DefineHtmlEvent $event) {
                 $element = $event->sender;
-
-                if (!($element instanceof Asset && $element->kind === Asset::KIND_IMAGE)) {
+                if (!$element instanceof ElementInterface) {
                     return;
                 }
 
-                $template = Craft::$app->getView()->renderTemplate('_aimate/generate-alt-text-button.twig', [
-                    'element' => $element,
-                    'pluginSettings' => $this->getSettings()
-                ]);
+                $actions = CpHelper::getElementActions($element);
+                if (empty($actions)) {
+                    return;
+                }
 
-                $event->html .= $template;
+                $event->html .= Cp::disclosureMenu($actions, [
+                    'buttonLabel' => Craft::t('_aimate', 'AI'),
+                    'buttonAttributes' => [
+                        'class' => 'btn menubtn aimate-btn',
+                        'data-icon' => true,
+                    ],
+                    'buttonSpinner' => true,
+                ]);
             }
         );
 

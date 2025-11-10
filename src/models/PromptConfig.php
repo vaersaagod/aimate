@@ -4,6 +4,9 @@ namespace vaersaagod\aimate\models;
 
 use craft\base\Model;
 
+/**
+ * @property-read bool $allowBlank
+ */
 class PromptConfig extends Model
 {
 
@@ -42,6 +45,14 @@ class PromptConfig extends Model
             $this->addError($attribute, 'The token must contain letters or digits.');
         }];
         return $rules;
+    }
+
+    /**
+     * @return bool
+     */
+    public function getAllowBlank(): bool
+    {
+        return !str_contains($this->template ?? '', '<text>');
     }
 
 }

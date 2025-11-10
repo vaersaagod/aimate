@@ -2,7 +2,8 @@
 
 namespace vaersaagod\aimate\controllers;
 
-use craft\elements\Asset;
+use Craft;
+use craft\base\ElementInterface;
 use craft\elements\Entry;
 use craft\web\Controller;
 
@@ -15,11 +16,14 @@ use vaersaagod\aimate\models\PromptConfig;
 use yii\web\BadRequestHttpException;
 use yii\web\Response;
 
-class DefaultController extends Controller
+class PromptController extends Controller
 {
 
+    /** @var string */
+    public $defaultAction = 'prompt';
+
     /** @var array|bool|int */
-    public array|bool|int $allowAnonymous = false; // TBD: is ok?
+    public array|bool|int $allowAnonymous = self::ALLOW_ANONYMOUS_NEVER;
 
     /** @var bool */
     public $enableCsrfValidation = false;
@@ -30,7 +34,7 @@ class DefaultController extends Controller
      * @throws \Throwable
      * @throws \yii\base\Exception
      */
-    public function actionDoPrompt(): ?Response
+    public function actionPrompt(): ?Response
     {
         $this->requirePostRequest();
         $this->requireAcceptsJson();
@@ -54,7 +58,6 @@ class DefaultController extends Controller
             'prompt' => $prompt->getPrompt(),
             'text' => $result,
         ]);
-
     }
 
     /**
@@ -97,27 +100,7 @@ class DefaultController extends Controller
         }
 
         // If there's an element, set it to the prompt to enable object template renderin'
-        if ($elementId = (int)$this->request->getBodyParam('elementId')) {
-            $siteId = ((int)$this->request->getBodyParam('siteId')) ?: null;
-            $elementType = \Craft::$app->getElements()->getElementTypeById($elementId);
-            if ($elementType === Entry::class) {
-                $draftId = (int)$this->request->getBodyParam('draftId');
-                $isProvisional = $draftId && $this->request->getBodyParam('isProvisionalDraft');
-                $entryQuery = Entry::find()
-                    ->id($elementId)
-                    ->siteId($siteId);
-                if ($draftId) {
-                    $entryQuery->draftId($draftId);
-                }
-                if ($isProvisional) {
-                    $entryQuery->provisionalDrafts();
-                }
-                $element = $entryQuery->one();
-            } else {
-                $element = \Craft::$app->getElements()->getElementById($elementId, $elementType, $siteId);
-            }
-            $prompt->element = $element ?? null;
-        }
+        $prompt->element = $this->_getElementFromRequest();
 
         if (!$prompt->validate()) {
             throw new \RuntimeException("Invalid prompt: " . $prompt->getFirstError(array_keys($prompt->getErrors())[0]));
@@ -127,51 +110,36 @@ class DefaultController extends Controller
 
     }
 
-
-    public function actionGenerateAltText()
+    /**
+     * @return ElementInterface|null
+     */
+    private function _getElementFromRequest(): ?ElementInterface
     {
-        $this->requirePostRequest();
-        $this->requireAcceptsJson();
-
         $elementId = (int)$this->request->getBodyParam('elementId');
+        if (empty($elementId)) {
+            return null;
+        }
+
         $siteId = (int)$this->request->getBodyParam('siteId');
+        $elementType = \Craft::$app->getElements()->getElementTypeById($elementId);
 
-        $element = Asset::find()->id($elementId)->siteId($siteId)->one();
-        
-        try {
-            $result = AIMate::getInstance()->altText->generateAltTextForAsset($element);
-        } catch (\Throwable $e) {
-            \Craft::error($e, __METHOD__);
-            return $this->asFailure(message: $e->getMessage());
-        }
-        
-        // TODO : Needs to be more robust
-        return $result ? $this->asSuccess() : $this->asFailure();
-    }
-    
-    public function actionGenerateAltTextJobs()
-    {
-        $this->requirePostRequest();
-        $this->requireAcceptsJson();
-
-        $elementIds = explode(',', $this->request->getBodyParam('elementIds'));
-        $siteId = $this->request->getBodyParam('siteId');
-
-        
-        try {
-            foreach ($elementIds as $elementId) {
-                $element = Asset::find()->id((int)$elementId)->siteId((int)$siteId)->one();
-                AIMate::getInstance()->altText->createGenerateAltTextJob($element, true);
-                
+        if ($elementType === Entry::class) {
+            $draftId = (int)$this->request->getBodyParam('draftId');
+            $isProvisional = $draftId && $this->request->getBodyParam('isProvisionalDraft');
+            $entryQuery = Entry::find()
+                ->id($elementId)
+                ->siteId($siteId);
+            if ($draftId) {
+                $entryQuery->draftId($draftId);
             }
-        } catch (\Throwable $e) {
-            \Craft::error($e, __METHOD__);
-            return $this->asFailure(message: $e->getMessage());
+            if ($isProvisional) {
+                $entryQuery->provisionalDrafts();
+            }
+
+            return $entryQuery->one();
         }
-        
-        return $this->asSuccess(\Craft::t('_aimate', 'Alt text generation jobs queued'));
+
+        return Craft::$app->getElements()->getElementById($elementId, $elementType, $siteId);
     }
-    
-    
 
 }

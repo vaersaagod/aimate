@@ -5,7 +5,7 @@ namespace vaersaagod\aimate\helpers;
 use GuzzleHttp\Client;
 use vaersaagod\aimate\AIMate;
 
-class OpenAiHelper
+final class OpenAiHelper
 {
 
     /**
@@ -14,7 +14,7 @@ class OpenAiHelper
      */
     public static function getClient(): \OpenAI\Client
     {
-        $openAiApiKey = static::getOpenAiApiKey();
+        $openAiApiKey = OpenAiHelper::getOpenAiApiKey();
 
         if (!$openAiApiKey) {
             throw new \Exception('No OpenAI API key');

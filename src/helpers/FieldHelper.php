@@ -12,6 +12,7 @@ use craft\fieldlayoutelements\CustomField;
 use craft\fieldlayoutelements\entries\EntryTitleField;
 use craft\fields\PlainText;
 use craft\fields\Table;
+use craft\helpers\Html;
 use craft\htmlfield\HtmlField;
 
 use Illuminate\Support\Collection;
@@ -20,8 +21,7 @@ use vaersaagod\aimate\AIMate;
 use vaersaagod\aimate\base\NativeFieldActionsEventTrait;
 use vaersaagod\aimate\models\PromptConfig;
 
-
-class FieldHelper
+final class FieldHelper
 {
     /** @var array|string[] */
     private const SUPPORTED_NATIVE_FIELDS = [
@@ -141,7 +141,7 @@ class FieldHelper
      * @param ElementInterface|null $element
      * @return array
      */
-    public static function getFieldPromptActions(FieldLayoutElement $fieldLayoutElement, ?ElementInterface $element = null): array
+    public static function getFieldActions(FieldLayoutElement $fieldLayoutElement, ?ElementInterface $element = null): array
     {
         $settings = AIMate::getInstance()->getSettings();
         $fieldConfig = static::getFieldConfig($fieldLayoutElement);
@@ -157,17 +157,25 @@ class FieldHelper
             $label = null;
         }
 
-        return array_map(static fn(PromptConfig $prompt) => [
-            'id' => 'aimate-prompt-field-' . $fieldLayoutElement->uid,
+        return array_map(static fn(PromptConfig $promptConfig) => [
+            'id' => Html::id(implode('-', array_filter([
+                'aimate-prompt',
+                $promptConfig->handle,
+                $fieldLayoutElement->uid,
+                $element?->uid,
+            ]))),
             'icon' => 'wand',
-            'label' => Craft::t('_aimate', $prompt->name),
+            'label' => Craft::t('site', $promptConfig->name),
             'attributes' => [
                 'data' => [
-                    'aimate-prompt-button' => true,
-                    'prompt' => $prompt->handle,
+                    'aimate-field-action' => 'prompt',
                     'element' => $element?->id ?? false,
                     'site' => $element?->siteId ?? false,
                     'label' => $label ?: Craft::t('app', 'Field'),
+                    'prompt' => $promptConfig->handle,
+                    'prompt-settings' => [
+                        'allowBlank' => $promptConfig->allowBlank,
+                    ],
                 ],
             ],
         ], $prompts);

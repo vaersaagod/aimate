@@ -3,21 +3,23 @@
 // let customPromptModal;
 
 $(document).ready(() => {
-    const onFieldActionPromptClick = async e => {
-        const { currentTarget: promptButton } = e;
+    const doCustomPromptForField = async () => { // TODO
+        /*
+        if (promptButton.hasAttribute('data-custom')) {
+        // if (!customPromptModal) {
+            //     customPromptModal = new CustomPromptModal();
+            // }
+            // customPromptModal.show();
+            // const customPrompt = await customPromptModal.getText();
+            // if (!customPrompt) {
+            //     return;
+            // }
+            // params.custom = customPrompt;
+         */
+    };
 
-        // Get field
-        const { element: elementId, site: siteId } = promptButton.dataset;
-        const $fieldActionsMenuTrigger = $(promptButton)
-            .closest('.menu')
-            .data('disclosureMenu')
-            ?.$trigger;
-        const $field = $fieldActionsMenuTrigger ? $fieldActionsMenuTrigger.closest('.field') : null;
-        if (!$field.length) {
-            Craft.cp.displayError('Field not found');
-            return;
-        }
-
+    const doPromptForField = async ($field, prompt, promptSettings, elementId, siteId) => {
+        const field = $field.get(0);
         const fieldType = $field.data('type');
 
         let input;
@@ -34,41 +36,17 @@ $(document).ready(() => {
         }
 
         const inputValue = input.value;
-        if (!inputValue.trim().length) {
-            $fieldActionsMenuTrigger.data('disclosureMenu')?.hide();
-            $fieldActionsMenuTrigger.focus();
+        if (!promptSettings.allowBlank && !inputValue.trim().length) {
             return;
         }
 
-        let params = {};
-
-        if (promptButton.hasAttribute('data-custom')) {
-            // if (!customPromptModal) {
-            //     customPromptModal = new CustomPromptModal();
-            // }
-            // customPromptModal.show();
-            // const customPrompt = await customPromptModal.getText();
-            // if (!customPrompt) {
-            //     return;
-            // }
-            // params.custom = customPrompt;
-        } else {
-            const { prompt } = promptButton.dataset;
-
-            if (!prompt) {
-                Craft.cp.displayError('No prompt');
-                return;
-            }
-            params.prompt = prompt;
-        }
+        let params = {
+            elementId,
+            siteId,
+            prompt,
+        };
 
         const elementEditor = $(input.closest('[data-element-editor]')).data('elementEditor');
-
-        params = {
-            ...params,
-            elementId,
-            siteId
-        };
 
         if (elementEditor) {
             params = {
@@ -78,17 +56,9 @@ $(document).ready(() => {
             };
         }
 
-        // Add a spinner to the field actions disclosure menu trigger, if it doesn't have one
-        if (!$fieldActionsMenuTrigger.find('.spinner').length) {
-            $fieldActionsMenuTrigger.append('<span class="spinner spinner-absolute" style="--size:80%;"/>');
-        }
-        $fieldActionsMenuTrigger.addClass('loading');
-        $fieldActionsMenuTrigger.data('disclosureMenu')?.hide();
-        $fieldActionsMenuTrigger.focus();
-
-        Craft.sendActionRequest(
+        return Craft.sendActionRequest(
             'POST',
-            '_aimate/default/do-prompt',
+            '_aimate/prompt',
             {
                 data: {
                     text: inputValue,
@@ -100,8 +70,6 @@ $(document).ready(() => {
             if (!data.text) {
                 return;
             }
-            const field = input.closest('.field');
-            const { type: fieldType } = field.dataset;
             if (fieldType === 'craft\\ckeditor\\Field') {
                 const editable = field.querySelector('.ck-editor__editable');
                 const ckEditorInstance = editable ? editable.ckeditorInstance : null;
@@ -119,11 +87,7 @@ $(document).ready(() => {
                 redactorInstance.insertion.set(data.text);
                 redactorInstance.source.getElement().val(data.text);
             } else {
-                input.focus();
-                input.select();
-                if (!document.execCommand('insertText', false, data.text)) {
-                    input.setRangeText(data.text);
-                }
+                input.value = data.text;
             }
             if (elementEditor) {
                 elementEditor.checkForm();
@@ -133,12 +97,84 @@ $(document).ready(() => {
         }).catch(error => {
             console.error(error);
         }).then(() => {
-            $fieldActionsMenuTrigger.removeClass('loading');
             input.focus();
         });
     };
 
-    const onGenerateAltTextClick = e => {
+    const onFieldActionPromptClick = async e => {
+        const { currentTarget: promptButton } = e;
+        const { element: elementId, site: siteId, prompt, promptSettings } = $(promptButton).data();
+
+        if (!prompt) {
+            Craft.cp.displayError('No prompt');
+            return;
+        }
+
+        // Get field actions trigger and the field it belongs to
+        const $fieldActionsMenuTrigger = $(promptButton)
+            .closest('.menu')
+            .data('disclosureMenu')
+            ?.$trigger;
+        const $field = $fieldActionsMenuTrigger ? $fieldActionsMenuTrigger.closest('.field') : null;
+        if (!$field.length) {
+            Craft.cp.displayError('Field not found');
+            return;
+        }
+
+        // Add a spinner to the field actions disclosure menu trigger, if it doesn't have one
+        if (!$fieldActionsMenuTrigger.find('.spinner').length) {
+            $fieldActionsMenuTrigger.append('<span class="spinner spinner-absolute" style="--size:80%;"/>');
+        }
+        $fieldActionsMenuTrigger.addClass('loading');
+        $fieldActionsMenuTrigger.data('disclosureMenu')?.hide();
+        $fieldActionsMenuTrigger.focus();
+
+        await doPromptForField($field, prompt, promptSettings, elementId, siteId);
+
+        $fieldActionsMenuTrigger.removeClass('loading');
+    };
+
+    const onElementActionPromptOptionClick = async e => {
+        const { currentTarget: promptActionButton } = e;
+        const { element: elementId, site: siteId, prompt, promptSettings } = $(promptActionButton).data();
+
+
+        // Find all textual fields and loop over them
+        const elementForm = document.getElementById('main-form');
+        if (!elementForm) {
+            console.error('Element form not found');
+        }
+
+        const $elementActionsTrigger = $(promptActionButton)
+            .closest('.menu')
+            .data('disclosureMenu')
+            ?.$trigger;
+        if ($elementActionsTrigger) {
+            $elementActionsTrigger.addClass('loading');
+        }
+
+        // Get all field action menus
+        const fieldActionTriggers = [...elementForm.querySelectorAll('.field > .heading > .btn.menubtn[data-disclosure-trigger]')];
+        for (const trigger of fieldActionTriggers) {
+            const $trigger = $(trigger);
+            const menu = $trigger.data('disclosureMenu');
+            const promptAction = menu?.$container?.get(0).querySelector(`[data-aimate-field-action="prompt"][data-prompt="${prompt}"]`);
+            if (!promptAction) {
+                continue;
+            }
+            const $field = $trigger.closest('.field');
+            if (!$field || !$field.length) {
+                continue;
+            }
+            await doPromptForField($field, prompt, promptSettings, elementId, siteId);
+        }
+
+        if ($elementActionsTrigger) {
+            $elementActionsTrigger.removeClass('loading');
+        }
+    };
+
+    const onElementActionGenerateAltTextClick = e => {
         e.preventDefault();
 
         const { currentTarget: generateButton } = e;
@@ -149,7 +185,10 @@ $(document).ready(() => {
             siteId
         };
 
-        generateButton.classList.add('loading');
+        $(generateButton)
+            .closest('.menu')
+            .data('disclosureMenu')
+            ?.$trigger.addClass('loading');
 
         Craft.sendActionRequest(
             'POST',
@@ -165,7 +204,10 @@ $(document).ready(() => {
         }).catch(error => {
             console.error(error);
         }).then(() => {
-            generateButton.classList.remove('loading');
+            $(generateButton)
+                .closest('.menu')
+                .data('disclosureMenu')
+                ?.$trigger.removeClass('loading');
         });
     }
 
@@ -207,7 +249,11 @@ $(document).ready(() => {
     };
     */
 
-    $('body').on('click', '[data-aimate-prompt-button]', onFieldActionPromptClick);
-    $('body').on('click', '[data-aimate-generate-alt-text-button]', onGenerateAltTextClick);
+    // Field actions
+    $('body').on('click', '[data-aimate-field-action="prompt"]', onFieldActionPromptClick);
+
+    // Element actions
+    $('body').on('click', '[data-aimate-element-action="prompt"]', onElementActionPromptOptionClick);
+    $('body').on('click', '[data-aimate-element-action="generate-alt-text"]', onElementActionGenerateAltTextClick);
 
 });
