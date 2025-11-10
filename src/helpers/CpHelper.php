@@ -32,7 +32,7 @@ final class CpHelper
 
         foreach ($prompts as $promptConfig) {
             $actions[] = [
-                'label' => Craft::t('site', $promptConfig->name),
+                'html' => AIMateHelper::getPromptLabel($promptConfig),
                 'attributes' => [
                     'data' => [
                         'aimate-element-action' => 'prompt',

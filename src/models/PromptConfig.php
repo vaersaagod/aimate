@@ -41,9 +41,6 @@ class PromptConfig extends Model
     {
         $rules = parent::rules();
         $rules[] = [['handle', 'name', 'template'], 'required'];
-        $rules[] = ['model', function ($attribute, $params, $validator) {
-            $this->addError($attribute, 'The token must contain letters or digits.');
-        }];
         return $rules;
     }
 

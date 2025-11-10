@@ -165,13 +165,12 @@ final class FieldHelper
                 $element?->uid,
             ]))),
             'icon' => 'wand',
-            'label' => Craft::t('site', $promptConfig->name),
+            'html' => AIMateHelper::getPromptLabel($promptConfig),
             'attributes' => [
                 'data' => [
                     'aimate-field-action' => 'prompt',
                     'element' => $element?->id ?? false,
                     'site' => $element?->siteId ?? false,
-                    'label' => $label ?: Craft::t('app', 'Field'),
                     'prompt' => $promptConfig->handle,
                     'prompt-settings' => [
                         'allowBlank' => $promptConfig->allowBlank,
