@@ -45,7 +45,7 @@ class GenerateAltText extends ElementAction
           
             Craft.sendActionRequest(
                 'POST',
-                '_aimate/default/generate-alt-text-jobs',
+                '_aimate/generate/generate-alt-text-jobs',
                 {
                     data: { 
                         elementIds: elementIds.join(','),

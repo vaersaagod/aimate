@@ -192,7 +192,7 @@ $(document).ready(() => {
 
         Craft.sendActionRequest(
             'POST',
-            '_aimate/default/generate-alt-text',
+            '_aimate/generate/generate-alt-text',
             {
                 data: { ...params }
             }
