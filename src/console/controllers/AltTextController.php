@@ -102,9 +102,15 @@ class AltTextController extends Controller
         $assets = $query->all();
         
         foreach ($assets as $asset) {
-            $this->stdout("Generating alt text for asset {$asset->id}... ", BaseConsole::FG_CYAN);
-            $result = AIMate::getInstance()->altText->generateAltTextForAsset($asset);
-            $this->stdout($result ? 'OK' : 'ERROR', $result ? BaseConsole::FG_GREEN : BaseConsole::FG_RED);
+            $this->stdout("Generating alt text for asset “{$asset->filename}” ({$asset->id})... ", BaseConsole::FG_CYAN);
+
+            try {
+                $result = AIMate::getInstance()->altText->generateAltTextForAsset($asset);
+                $this->stdout($result ? 'OK' : 'ERROR', $result ? BaseConsole::FG_GREEN : BaseConsole::FG_RED);
+            } catch (\Throwable $e) {
+                $this->stdout('ERROR: '.$e->getMessage(), BaseConsole::FG_RED);
+            }
+
             $this->stdout(PHP_EOL);
         }
 
