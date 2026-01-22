@@ -10,12 +10,14 @@ use craft\base\FieldLayoutElement;
 use craft\base\Model;
 use craft\base\Plugin;
 use craft\elements\Asset;
+use craft\events\DefineFieldActionsEvent;
 use craft\events\DefineFieldHtmlEvent;
 use craft\events\DefineHtmlEvent;
 use craft\events\DefineMenuItemsEvent;
 use craft\events\ElementEvent;
 use craft\events\RegisterElementActionsEvent;
 use craft\events\ReplaceAssetEvent;
+use craft\fieldlayoutelements\BaseField;
 use craft\fieldlayoutelements\BaseNativeField;
 use craft\helpers\Cp;
 use craft\helpers\ElementHelper;
@@ -35,6 +37,7 @@ use vaersaagod\aimate\models\Settings;
 use vaersaagod\aimate\services\AltTextService;
 use vaersaagod\aimate\actions\GenerateAltText;
 
+use vaersaagod\transmate\helpers\TranslateHelper;
 use yii\base\Event;
 
 /**
@@ -110,84 +113,27 @@ class AIMate extends Plugin
         }
 
         // Add AI field action to field layout elements
-        // We wrap this in a FieldLayout::EVENT_DEFINE_INPUT_HTML event to access the element (which unfortunately is not exposed for the new Field::EVENT_DEFINE_ACTION_MENU_ITEMS event in Craft 5.7)
-        // This only works for custom fields!
         Event::on(
-            Field::class,
-            Field::EVENT_DEFINE_INPUT_HTML,
-            static function (DefineFieldHtmlEvent $event) {
-                $field = $event->sender;
-                if (!$field instanceof Field || $event->static || $event->inline) {
+            BaseField::class,
+            BaseField::EVENT_DEFINE_ACTION_MENU_ITEMS,
+            static function (DefineFieldActionsEvent $event) {
+                if ($event->static || !$event->sender instanceof FieldLayoutElement) {
                     return;
                 }
 
-                $element = $event->element;
-                if (!$element instanceof ElementInterface || ElementHelper::isRevision($element)) {
+                // Get prompt actions for this field
+                $promptActions = FieldHelper::getFieldActions($event->sender, $event->element);
+                if (empty($promptActions)) {
                     return;
                 }
 
-                $layoutElement = $field->layoutElement;
-                if (!$layoutElement instanceof FieldLayoutElement) {
-                    return;
+                // Try to put the prompt actions before the "Field settings" action, if it exists
+                $fieldSettingsActionIndex = array_search(true, array_map(fn($id) => str_starts_with($id, 'action-edit-'), array_column($event->items, 'id')));
+                if ($fieldSettingsActionIndex !== false) {
+                    array_splice($event->items, $fieldSettingsActionIndex, 0, $promptActions);
+                } else {
+                    $event->items = [...$event->items, ...$promptActions];
                 }
-
-                Event::on(
-                    Field::class,
-                    Field::EVENT_DEFINE_ACTION_MENU_ITEMS,
-                    static function (DefineMenuItemsEvent $event) use ($element, $layoutElement) {
-                        if ($event->sender?->layoutElement->uid !== $layoutElement->uid) {
-                            return;
-                        }
-
-                        // Filter out any existing prompt actions
-                        $event->items = array_filter($event->items, static fn (array $action) => empty($action['attributes']['data']['aimate-field-action']));
-
-                        // Get prompt actions for this field
-                        $promptActions = FieldHelper::getFieldActions($layoutElement, $element);
-                        if (empty($promptActions)) {
-                            return;
-                        }
-
-                        // Try to put the prompt actions before the "Field settings" action, if it exists
-                        $fieldSettingsActionIndex = array_search(true, array_map(fn($id) => str_starts_with($id, 'action-edit-'), array_column($event->items, 'id')));
-                        if ($fieldSettingsActionIndex !== false) {
-                            array_splice($event->items, $fieldSettingsActionIndex, 0, $promptActions);
-                        } else {
-                            $event->items = [...$event->items, ...$promptActions];
-                        }
-                    }
-                );
-            }
-        );
-
-        // Monkey-patched in AI field actions for native fields; title and alt
-        // This is a (hopefully) temporary fix – https://github.com/craftcms/cms/discussions/16779
-        Event::on(
-            FieldLayout::class,
-            Model::EVENT_INIT,
-            static function (Event $event) {
-                $fieldLayout = &$event->sender;
-                foreach ($fieldLayout->tabs as $tab) {
-                    if (empty($tab->elements)) {
-                        return;
-                    }
-                    $tab->elements = array_map([FieldHelper::class, 'getPromptableFieldLayoutElement'], $tab->elements);
-                }
-            }
-        );
-
-        // This would never fire if not for the monkey patch above
-        Event::on(
-            BaseNativeField::class,
-            'eventDefineNativeFieldActionMenuItems',
-            static function (DefineMenuItemsEvent $event) {
-                if (!empty($event->static) || !property_exists($event, 'element')) {
-                    return;
-                }
-                /** @var FieldLayoutElement $layoutElement */
-                $layoutElement = $event->sender;
-                $promptActions = FieldHelper::getFieldActions($layoutElement, $event->element);
-                $event->items = array_filter([...$event->items, ...$promptActions]);
             }
         );
 

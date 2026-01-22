@@ -12,13 +12,13 @@ use craft\fieldlayoutelements\CustomField;
 use craft\fieldlayoutelements\entries\EntryTitleField;
 use craft\fields\PlainText;
 use craft\fields\Table;
+use craft\helpers\ElementHelper;
 use craft\helpers\Html;
 use craft\htmlfield\HtmlField;
 
 use Illuminate\Support\Collection;
 
 use vaersaagod\aimate\AIMate;
-use vaersaagod\aimate\base\NativeFieldActionsEventTrait;
 use vaersaagod\aimate\models\PromptConfig;
 
 final class FieldHelper
@@ -43,10 +43,7 @@ final class FieldHelper
      */
     public static function isFieldSupported(FieldLayoutElement $fieldLayoutElement): bool
     {
-        if ($fieldLayoutElement instanceof BaseNativeField) {
-            return array_reduce(self::SUPPORTED_NATIVE_FIELDS, fn($carry, $class) => $carry || $fieldLayoutElement instanceof $class, false);
-        }
-
+        // Custom fields
         if ($fieldLayoutElement instanceof CustomField) {
             $field = $fieldLayoutElement->field;
 
@@ -63,7 +60,12 @@ final class FieldHelper
             return true;
         }
 
-        return true;
+        // Native fields
+        if ($fieldLayoutElement instanceof BaseNativeField) {
+            return array_reduce(self::SUPPORTED_NATIVE_FIELDS, fn($carry, $class) => $carry || $fieldLayoutElement instanceof $class, false);
+        }
+
+        return false;
     }
 
     /**
@@ -108,41 +110,16 @@ final class FieldHelper
     }
 
     /**
-     * This method is used to monkey-patch in a custom event for certain native fields, to let us add field actions to them
-     *
-     * @param FieldLayoutElement $fieldLayoutElement
-     * @return FieldLayoutElement
-     */
-    public static function getPromptableFieldLayoutElement(FieldLayoutElement $fieldLayoutElement): FieldLayoutElement
-    {
-        $nativeFieldClassMapping = [
-            EntryTitleField::class => fn($config) => new class($config) extends EntryTitleField {
-                use NativeFieldActionsEventTrait;
-            },
-            AssetTitleField::class => fn($config) => new class($config) extends AssetTitleField {
-                use NativeFieldActionsEventTrait;
-            },
-            AltField::class => fn($config) => new class($config) extends AltField {
-                use NativeFieldActionsEventTrait;
-            },
-        ];
-
-        foreach ($nativeFieldClassMapping as $className => $factory) {
-            if ($fieldLayoutElement instanceof $className) {
-                return $factory($fieldLayoutElement->getAttributes());
-            }
-        }
-
-        return $fieldLayoutElement;
-    }
-
-    /**
      * @param FieldLayoutElement $fieldLayoutElement
      * @param ElementInterface|null $element
      * @return array
      */
     public static function getFieldActions(FieldLayoutElement $fieldLayoutElement, ?ElementInterface $element = null): array
     {
+        if (!$element instanceof ElementInterface || ElementHelper::isRevision($element)) {
+            return [];
+        }
+
         $settings = AIMate::getInstance()->getSettings();
         $fieldConfig = static::getFieldConfig($fieldLayoutElement);
         if ($fieldConfig === null) { // A null field config means this field should not have any prompts at all
