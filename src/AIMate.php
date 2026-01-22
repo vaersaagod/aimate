@@ -5,24 +5,19 @@ namespace vaersaagod\aimate;
 use Craft;
 use craft\base\Element;
 use craft\base\ElementInterface;
-use craft\base\Field;
 use craft\base\FieldLayoutElement;
 use craft\base\Model;
 use craft\base\Plugin;
 use craft\elements\Asset;
 use craft\events\DefineFieldActionsEvent;
-use craft\events\DefineFieldHtmlEvent;
 use craft\events\DefineHtmlEvent;
-use craft\events\DefineMenuItemsEvent;
 use craft\events\ElementEvent;
 use craft\events\RegisterElementActionsEvent;
 use craft\events\ReplaceAssetEvent;
 use craft\fieldlayoutelements\BaseField;
-use craft\fieldlayoutelements\BaseNativeField;
 use craft\helpers\Cp;
 use craft\helpers\ElementHelper;
 use craft\log\MonologTarget;
-use craft\models\FieldLayout;
 use craft\services\Assets;
 use craft\services\Elements;
 
@@ -37,7 +32,6 @@ use vaersaagod\aimate\models\Settings;
 use vaersaagod\aimate\services\AltTextService;
 use vaersaagod\aimate\actions\GenerateAltText;
 
-use vaersaagod\transmate\helpers\TranslateHelper;
 use yii\base\Event;
 
 /**

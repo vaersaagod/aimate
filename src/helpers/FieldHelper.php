@@ -139,15 +139,15 @@ final class FieldHelper
                 'aimate-prompt',
                 $promptConfig->handle,
                 $fieldLayoutElement->uid,
-                $element?->uid,
+                $element->uid,
             ]))),
             'icon' => 'wand',
             'html' => AIMateHelper::getPromptLabel($promptConfig),
             'attributes' => [
                 'data' => [
                     'aimate-field-action' => 'prompt',
-                    'element' => $element?->id ?? false,
-                    'site' => $element?->siteId ?? false,
+                    'element' => $element->id,
+                    'site' => $element->siteId,
                     'prompt' => $promptConfig->handle,
                     'prompt-settings' => [
                         'allowBlank' => $promptConfig->allowBlank,
