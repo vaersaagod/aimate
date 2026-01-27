@@ -6,7 +6,6 @@ use craft\base\ElementInterface;
 use craft\base\Model;
 use craft\helpers\StringHelper;
 
-use http\Exception\RuntimeException;
 use Illuminate\Support\Collection;
 
 use vaersaagod\aimate\AIMate;
@@ -33,7 +32,7 @@ class Prompt extends Model
     public function rules(): array
     {
         $rules = parent::rules();
-        $rules[] = ['text', 'required', 'when' => static fn (Prompt $prompt) => !$prompt->config->getAllowBlank()];
+        $rules[] = ['text', 'required', 'when' => static fn(Prompt $prompt) => !$prompt->config->getAllowBlank()];
         return $rules;
     }
 
@@ -71,29 +70,7 @@ class Prompt extends Model
         // Render the prompt as an object template, in case we have an element
         $prompt = \Craft::$app->getView()->renderObjectTemplate($template, $this->element);
 
-        // Parse the directives
-        $this->directives = '';
-        $directives = [];
-
-        // Figure out the max number of words we want
-        $maxWords = $this->getMaxWords();
-        if ($maxWords) {
-            $directives[] = "In about $maxWords words or less";
-        }
-
-        // Retain HTML?
-        if ($this->getIsHtml()) {
-            $directives[] = 'preserving HTML tags';
-        }
-
-        if (empty($directives)) {
-            return $prompt;
-        }
-
-        $this->directives = implode(' and ', $directives);
-
-        return implode(', ', [$this->directives, $prompt]);
-
+        return $prompt;
     }
 
     /**
@@ -119,21 +96,21 @@ class Prompt extends Model
     public function getMaxWords(): ?int
     {
         $maxWords = $this->config->maxWords;
-        
+
         if (empty($maxWords) && $maxWords !== false && !empty($this->text)) {
             $maxWords = StringHelper::countWords($this->text);
         }
-        
+
         if (!$maxWords) {
             return null;
         }
-        
+
         $multiplier = $this->config->maxWordsMultiplier ?? AIMate::getInstance()->getSettings()->maxWordsMultiplier;
-        
+
         if (!empty($multiplier)) {
             return round($maxWords * $multiplier);
         }
-        
+
         return $maxWords;
     }
 
@@ -161,28 +138,97 @@ class Prompt extends Model
     public function complete(): ?string
     {
         $client = OpenAiHelper::getClient();
+
         $prompt = $this->getPrompt();
+        $language = $this->element?->getSite()->language ?? \Craft::$app->getSites()->getCurrentSite()->language;
+
+        $systemPrompt = <<<EOT
+You are a web editor for a website CMS.
+Write and edit content to be clear, concise, user-focused, SEO-friendly, and publication-ready.
+Improve structure, readability, and accuracy while preserving meaning and brand tone.
+Do not invent facts or add marketing claims unless instructed.
+- When asked to rewrite or correct text, do so in a way that is clear and concise.
+- When asked to rewrite or correct text, you keep the length of the result close to the original.
+- When asked to rewrite or correct text, you keep the punctation at the end of the text the same as the original.
+- Return output in valid JSON format exactly as specified.
+EOT;
+
+        $rules = [
+           "Make sure the returned text is in the correct language.",
+            ...$this->config->rules ?? []
+        ];
+
+        // Figure out the max number of words we want
+        $maxWords = $this->getMaxWords();
+        if ($maxWords) {
+            $rules[] = "In about $maxWords words or less.";
+        }
+
+        // Retain HTML?
+        if ($this->getIsHtml()) {
+            $rules[] = 'Preserve HTML tags.';
+        }
+        
+        $userPrompt = [
+            "role" => "user",
+            "content" => [
+                [
+                    "type" => "text",
+                    "text" => json_encode([
+                        "language" => $language,
+                        "context" => '',
+                        "output_format" => [
+                            "text" => "string",
+                            "confidence" => "float 0–1",
+                            "warnings" => "array of strings",
+                            "language" => $language
+                        ],
+                        "rules" => $rules
+                    ], JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT)
+                ],
+                [
+                    "type" => "text",
+                    'text' => $prompt
+                ]
+            ]
+        ];
+
+        $messages = [
+            [
+                "role" => "system",
+                "content" => $systemPrompt
+            ],
+            $userPrompt
+        ];
+
         $params = [
             'model' => $this->getModel(),
-            //'temperature' => $this->getTemperature(),
-            'messages' => [
-                ['role' => 'user', 'content' => $prompt],
-            ],
+            'messages' => $messages,
         ];
-        
+
         $result = $client->chat()->create($params);
-        
-        $response = Collection::make($result['choices'] ?? [])
-            ->first(static fn(array $choice) => $choice['finish_reason'] === 'stop' && !empty($choice['message']['content'] ?? null));
+
+        $response = Collection::make($result['choices'] ?? [])->first(static fn(array $choice) => $choice['finish_reason'] === 'stop' && !empty($choice['message']['content'] ?? null));
+
         if (!$response) {
+            \Craft::error('No response from AI for prompt ' . $prompt . ': ' . print_r($response, true), __METHOD__);
             return null;
         }
+
         $message = trim($response['message']['content']);
-        if (!empty($this->directives)) {
-            $message = StringHelper::removeLeft($message, $this->directives);
-            $message = StringHelper::removeRight($message, $this->directives);
+
+        try {
+            $data = json_decode($message, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\Throwable $e) {
+            \Craft::error('Invalid JSON response from AI for prompt ' . $prompt . ': ' . $e->getMessage(), __METHOD__);
+            return null;
         }
-        return trim($message) ?: null;
+
+        if (!isset($data['text'])) {
+            return null;
+        }
+
+        return trim($data['text']);
     }
 
 }

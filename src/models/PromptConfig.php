@@ -34,6 +34,9 @@ class PromptConfig extends Model
     /** @var array|null The sites this prompt will be active for */
     public ?array $sites = null;
 
+    /** @var array|null Additional rules for prompt */
+    public ?array $rules = null;
+
     /**
      * @return array
      */

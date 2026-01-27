@@ -156,10 +156,10 @@ EOT;
                             "language" => $language
                         ],
                         "rules" => [
-                            "1" => "Be factual, not speculative.",
-                            "2" => "Include on-image text if essential.",
-                            "3" => "Skip SEO terms, camera data, filenames.",
-                            "4" => "Make sure the returned alt text is in the correct language."
+                            "Be factual, not speculative.",
+                            "Include on-image text if essential.",
+                            "Skip SEO terms, camera data, filenames.",
+                            "Make sure the returned alt text is in the correct language."
                         ]
                     ], JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT)
                 ],
