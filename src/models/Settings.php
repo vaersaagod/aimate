@@ -41,6 +41,9 @@ class Settings extends Model
     /** @var int */
     public int $thumbSize = 512; 
 
+    /** @var array */
+    public array $safeImageFormats = ['jpg', 'jpeg', 'png', 'gif', 'webp'];  
+
     /** @var int */
     public int $clientTimeout = 120;
 

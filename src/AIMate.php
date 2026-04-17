@@ -165,7 +165,7 @@ class AIMate extends Plugin
                     /** @var \craft\base\Element $element */
                     $element = $event->element;
 
-                    if ($element instanceof Asset && $element->kind === Asset::KIND_IMAGE && $element->isNewForSite && $element->getScenario() !== Asset::SCENARIO_INDEX) {
+                    if ($element instanceof Asset && $element->kind === Asset::KIND_IMAGE && in_array($element->extension, self::getInstance()->settings->safeImageFormats, true) && $element->isNewForSite && $element->getScenario() !== Asset::SCENARIO_INDEX) {
                         if (!self::getInstance()->altText->hasAltText($element)) {
                             self::getInstance()->altText->createGenerateAltTextJob($element);
                         }
