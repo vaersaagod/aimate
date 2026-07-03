@@ -5,6 +5,7 @@ namespace vaersaagod\aimate\services;
 use craft\base\Component;
 use craft\elements\Asset;
 use craft\helpers\App;
+use craft\helpers\FileHelper;
 use craft\helpers\UrlHelper;
 
 use Illuminate\Support\Collection;
@@ -226,9 +227,13 @@ EOT;
         // We assume this is a path relative to the webroot
         if (str_starts_with($transformedImageUrl, '/')) {
             $transformedImagePath = strtok($transformedImageUrl, '?');
-            
-            $filename = App::parseEnv('@webroot'.$transformedImagePath);
-            if (file_exists($filename)) {
+
+            $webroot = App::parseEnv('@webroot');
+            $realWebroot = realpath($webroot);
+            $filename = realpath(FileHelper::normalizePath($webroot . $transformedImagePath));
+
+            // Only read the file if it resolves to a real file inside the webroot
+            if ($realWebroot !== false && $filename !== false && str_starts_with($filename, $realWebroot . DIRECTORY_SEPARATOR) && is_file($filename)) {
                 $assetContents = file_get_contents($filename);
                 $assetMimeType = strtolower($asset->getMimeType());
                 $base64Image = base64_encode($assetContents);

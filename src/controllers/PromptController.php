@@ -11,26 +11,39 @@ use Illuminate\Support\Collection;
 
 use vaersaagod\aimate\AIMate;
 use vaersaagod\aimate\models\Prompt;
-use vaersaagod\aimate\models\PromptConfig;
 
 use yii\web\BadRequestHttpException;
+use yii\web\ForbiddenHttpException;
 use yii\web\Response;
 
 class PromptController extends Controller
 {
-
     /** @var string */
     public $defaultAction = 'prompt';
 
-    /** @var array|bool|int */
+    /** @var array<int|string>|bool|int */
     public array|bool|int $allowAnonymous = self::ALLOW_ANONYMOUS_NEVER;
 
-    /** @var bool */
-    public $enableCsrfValidation = false;
+    /**
+     * @param \yii\base\Action $action
+     * @return bool
+     * @throws BadRequestHttpException
+     */
+    public function beforeAction($action): bool
+    {
+        if (!parent::beforeAction($action)) {
+            return false;
+        }
+
+        $this->requireCpRequest();
+
+        return true;
+    }
 
     /**
      * @return Response|null
      * @throws BadRequestHttpException
+     * @throws ForbiddenHttpException
      * @throws \Throwable
      * @throws \yii\base\Exception
      */
@@ -44,18 +57,15 @@ class PromptController extends Controller
         try {
             $result = $prompt->complete();
         } catch (\Throwable $e) {
-            \Craft::error($e, __METHOD__);
-            return $this->asFailure(message: $e->getMessage());
+            Craft::error($e, __METHOD__);
+            return $this->asFailure(message: Craft::t('_aimate', 'An error occurred while generating the prompt result.'));
         }
 
         if (empty($result)) {
-            return $this->asFailure(message: "Unable to provide prompt result", data: [
-                'prompt' => $prompt->getPrompt(),
-            ]);
+            return $this->asFailure(message: Craft::t('_aimate', 'Unable to provide prompt result'));
         }
 
         return $this->asSuccess(data: [
-            'prompt' => $prompt->getPrompt(),
             'text' => $result,
         ]);
     }
@@ -63,6 +73,7 @@ class PromptController extends Controller
     /**
      * @return Prompt
      * @throws BadRequestHttpException
+     * @throws ForbiddenHttpException
      * @throws \yii\base\InvalidConfigException
      */
     private function _getPromptFromRequest(): Prompt
@@ -70,27 +81,16 @@ class PromptController extends Controller
         $settings = AIMate::getInstance()->getSettings();
         $textInput = trim($this->request->getBodyParam('text', ''));
 
-        $custom = $this->request->getBodyParam('custom');
-
-        if ($custom) {
-
-            $config = new PromptConfig([
-                'handle' => 'custom',
-                'name' => 'Custom',
-                'template' => $custom,
-            ]);
-
-        } else {
-            $handle = $this->request->getRequiredBodyParam('prompt');
-            $config = Collection::make($settings->prompts ?? [])
-                ->firstWhere('handle', $handle);
-            if (!$config) {
-                throw new BadRequestHttpException("Invalid prompt \"$handle\"");
-            }
+        // Prompts can only be run from admin-defined configs, never from request-supplied templates
+        $handle = $this->request->getRequiredBodyParam('prompt');
+        $config = Collection::make($settings->prompts ?? [])
+            ->firstWhere('handle', $handle);
+        if (!$config) {
+            throw new BadRequestHttpException("Invalid prompt \"$handle\"");
         }
 
         /** @var Prompt $prompt */
-        $prompt = \Craft::createObject([
+        $prompt = Craft::createObject([
             'class' => Prompt::class,
             'config' => $config,
         ]);
@@ -102,12 +102,19 @@ class PromptController extends Controller
         // If there's an element, set it to the prompt to enable object template renderin'
         $prompt->element = $this->_getElementFromRequest();
 
+        // Make sure the current user is actually allowed to edit the element the prompt operates on
+        if ($prompt->element !== null) {
+            $currentUser = Craft::$app->getUser()->getIdentity();
+            if (!$currentUser || !Craft::$app->getElements()->canSave($prompt->element, $currentUser)) {
+                throw new ForbiddenHttpException('You do not have permission to run AI prompts on this element.');
+            }
+        }
+
         if (!$prompt->validate()) {
             throw new \RuntimeException("Invalid prompt: " . $prompt->getFirstError(array_keys($prompt->getErrors())[0]));
         }
 
         return $prompt;
-
     }
 
     /**
@@ -121,7 +128,7 @@ class PromptController extends Controller
         }
 
         $siteId = (int)$this->request->getBodyParam('siteId');
-        $elementType = \Craft::$app->getElements()->getElementTypeById($elementId);
+        $elementType = Craft::$app->getElements()->getElementTypeById($elementId);
 
         if ($elementType === Entry::class) {
             $draftId = (int)$this->request->getBodyParam('draftId');
@@ -141,5 +148,4 @@ class PromptController extends Controller
 
         return Craft::$app->getElements()->getElementById($elementId, $elementType, $siteId);
     }
-
 }
