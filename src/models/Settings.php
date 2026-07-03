@@ -10,7 +10,6 @@ use craft\base\Model;
  */
 class Settings extends Model
 {
-
     /** @var string */
     public string $openAIApiKey;
 
@@ -36,13 +35,16 @@ class Settings extends Model
     public bool $useImagerIfInstalled = true;
     
     /** @var bool */
-    public bool $autoAltTextEnabled = true;
+    public bool $autoAltTextEnabled = false;
+    
+    /** @var bool */
+    public bool $autoFocalPointEnabled = false;
     
     /** @var int */
-    public int $thumbSize = 512; 
+    public int $thumbSize = 512;
 
     /** @var array */
-    public array $safeImageFormats = ['jpg', 'jpeg', 'png', 'gif', 'webp'];  
+    public array $safeImageFormats = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
 
     /** @var int */
     public int $clientTimeout = 120;
@@ -61,7 +63,7 @@ class Settings extends Model
     public function setAttributes($values, $safeOnly = true): void
     {
         // Create and validate prompt configs
-        $values['prompts'] = array_reduce(array_keys($values['prompts'] ?? []), static function (array $carry, string $handle) use ($values) {
+        $values['prompts'] = array_reduce(array_keys($values['prompts'] ?? []), static function(array $carry, string $handle) use ($values) {
             $config = $values['prompts'][$handle] ?? [];
             /** @var PromptConfig $prompt */
             $prompt = Craft::createObject(array_merge([
@@ -76,5 +78,4 @@ class Settings extends Model
         }, []);
         parent::setAttributes($values, $safeOnly);
     }
-
 }

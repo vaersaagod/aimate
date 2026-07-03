@@ -211,6 +211,43 @@ $(document).ready(() => {
         });
     }
 
+    const onElementActionGenerateFocalPointClick = e => {
+        e.preventDefault();
+
+        const { currentTarget: generateButton } = e;
+        const { element: elementId, site: siteId } = generateButton.dataset;
+
+        const params = {
+            elementId,
+            siteId
+        };
+
+        $(generateButton)
+            .closest('.menu')
+            .data('disclosureMenu')
+            ?.$trigger.addClass('loading');
+
+        Craft.sendActionRequest(
+            'POST',
+            '_aimate/generate/generate-focal-point',
+            {
+                data: { ...params }
+            }
+        ).then(res => {
+            const { data } = res;
+            window.location.reload();
+        }).catch(({ response }) => {
+            Craft.cp.displayError(response.message || response.data.message);
+        }).catch(error => {
+            console.error(error);
+        }).then(() => {
+            $(generateButton)
+                .closest('.menu')
+                .data('disclosureMenu')
+                ?.$trigger.removeClass('loading');
+        });
+    }
+
     /*
     const initTableRow = $tr => {
         const field = $tr.get(0).closest('.field');
@@ -255,5 +292,6 @@ $(document).ready(() => {
     // Element actions
     $('body').on('click', '[data-aimate-element-action="prompt"]', onElementActionPromptOptionClick);
     $('body').on('click', '[data-aimate-element-action="generate-alt-text"]', onElementActionGenerateAltTextClick);
+    $('body').on('click', '[data-aimate-element-action="generate-focal-point"]', onElementActionGenerateFocalPointClick);
 
 });

@@ -15,9 +15,90 @@ use spacecatninja\imagerx\ImagerX;
 use vaersaagod\aimate\AIMate;
 use vaersaagod\aimate\helpers\OpenAiHelper;
 use vaersaagod\aimate\jobs\GenerateAltTextJob;
+use vaersaagod\aimate\jobs\GenerateFocalPointJob;
 
-class AltTextService extends Component
+class AssetService extends Component
 {
+    public function getFocalPointForAsset(Asset $asset): bool
+    {
+        $settings = AIMate::getInstance()->getSettings();
+
+        $client = OpenAiHelper::getClient();
+
+        $imageUrl = $this->getAssetUrl($asset);
+
+        if (empty($imageUrl)) {
+            \Craft::error('Could not get image URL for asset ' . $asset->id, __METHOD__);
+            return false;
+        }
+
+        $messages = $this->buildFocalPointPrompt($imageUrl);
+
+        $result = $client->chat()->create([
+            'model' => $settings->model,
+            'messages' => $messages,
+        ]);
+
+        $response = Collection::make($result['choices'] ?? [])->first(static fn(array $choice) => $choice['finish_reason'] === 'stop' && !empty($choice['message']['content'] ?? null));
+
+        if (!$response) {
+            \Craft::error('Invalid response from OpenAI for asset ' . $asset->id . ': ' . print_r($response, true), __METHOD__);
+
+            return false;
+        }
+
+        $message = trim($response['message']['content']);
+
+        try {
+            $data = json_decode($message, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\Throwable $e) {
+            \Craft::error('Invalid JSON response from OpenAI for asset ' . $asset->id . ': ' . $e->getMessage(), __METHOD__);
+            return false;
+        }
+
+        $focalPoint = $data['focal_point'] ?? $data['output_format']['focal_point'] ?? null; // For some obscure reason, the API sometimes returns the whole request structure back.
+
+        if (!isset($focalPoint['x'], $focalPoint['y'])) {
+            // The model couldn't determine a focal point (e.g. no discernible subject); leave the asset untouched
+            \Craft::info('No focal point determined by OpenAI for asset ' . $asset->id, __METHOD__);
+            return false;
+        }
+
+        if (!is_numeric($focalPoint['x']) || !is_numeric($focalPoint['y'])) {
+            \Craft::error('No valid focal point found in response from OpenAI for asset ' . $asset->id . ': ' . print_r($data, true), __METHOD__);
+            return false;
+        }
+
+        // Clamp to the 0–1 range – Asset::setFocalPoint() silently discards out-of-range values
+        $asset->setFocalPoint([
+            'x' => min(1.0, max(0.0, round((float)$focalPoint['x'], 4))),
+            'y' => min(1.0, max(0.0, round((float)$focalPoint['y'], 4))),
+        ]);
+
+        if (!\Craft::$app->getElements()->saveElement($asset)) {
+            return false;
+        }
+
+        // Already generated transforms aren't invalidated when the focal point changes on a plain element save
+        \Craft::$app->getImageTransforms()->deleteCreatedTransformsForAsset($asset);
+
+        return true;
+    }
+
+    public function createGenerateFocalPointJob(Asset $asset, bool $forced = false): void
+    {
+        $queue = \Craft::$app->getQueue();
+
+        $jobId = $queue->push(new GenerateFocalPointJob([
+            'description' => \Craft::t('_aimate', 'Generating focal point for asset "' . $asset->filename . '" (ID ' . $asset->id . ')'),
+            'assetId' => $asset->id,
+            'siteId' => $asset->siteId,
+            'forced' => $forced,
+        ]));
+
+        \Craft::info('Created generate focal point job for asset with id ' . $asset->id . ' (job id is ' . $jobId . ')', __METHOD__);
+    }
+
     public function createGenerateAltTextJob(Asset $asset, bool $forced = false): void
     {
         $queue = \Craft::$app->getQueue();
@@ -89,7 +170,7 @@ class AltTextService extends Component
             }
 
             return \Craft::$app->getElements()->saveElement($asset);
-        } 
+        }
             
         \Craft::error('No alt text found in response from OpenAI for asset ' . $asset->id . ': ' . print_r($data, true), __METHOD__);
         
@@ -124,9 +205,8 @@ class AltTextService extends Component
         bool $longDescription = false,
         bool $decorative = false,
         string $imageType = 'photo',
-        ?string $context = null
+        ?string $context = null,
     ): array {
-
         $systemPrompt = <<<EOT
 You are an expert accessibility writer. Write concise, accurate, non-hallucinated alternative text for images that meets WCAG 2.2 and ARIA guidance.
 - Never include “image of” or “picture of”.
@@ -154,29 +234,89 @@ EOT;
                             "long_description" => "string or empty",
                             "confidence" => "float 0–1",
                             "warnings" => "array of strings",
-                            "language" => $language
+                            "language" => $language,
                         ],
                         "rules" => [
                             "Be factual, not speculative.",
                             "Include on-image text if essential.",
                             "Skip SEO terms, camera data, filenames.",
-                            "Make sure the returned alt text is in the correct language."
-                        ]
-                    ], JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT)
+                            "Make sure the returned alt text is in the correct language.",
+                        ],
+                    ], JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT),
                 ],
                 [
                     "type" => "image_url",
-                    "image_url" => ["url" => $imageUrl]
-                ]
-            ]
+                    "image_url" => ["url" => $imageUrl],
+                ],
+            ],
         ];
 
         return [
             [
                 "role" => "system",
-                "content" => $systemPrompt
+                "content" => $systemPrompt,
             ],
-            $userPrompt
+            $userPrompt,
+        ];
+    }
+
+    /**
+     * Build OpenAI chat messages for detecting the focal point of an image.
+     *
+     * @param string      $imageUrl URL of the image to analyze.
+     * @param string|null $context  Optional context, e.g., page title or caption.
+     *
+     * @return array The `messages` array to send to OpenAI’s Chat API.
+     * @throws \JsonException
+     */
+    public function buildFocalPointPrompt(
+        string $imageUrl,
+        ?string $context = null,
+    ): array {
+        $systemPrompt = <<<EOT
+You are an expert photo editor. Identify the single most important focal point of an image, used to anchor crops when the image is displayed at different aspect ratios.
+- The focal point is the spot a viewer’s eye should be drawn to. Priority order: human faces, then people or animals, then the main subject, then the area of sharpest focus or highest contrast.
+- Coordinates are relative to the image dimensions: x is the horizontal position measured from the left edge (0.0 = left, 1.0 = right); y is the vertical position measured from the top edge (0.0 = top, 1.0 = bottom).
+- Aim for the center of the subject (for faces, the point between the eyes).
+- If there is no discernible subject (flat textures, abstract gradients, uniform patterns), return null for both coordinates.
+- Return output in valid JSON format exactly as specified.
+EOT;
+
+        $userPrompt = [
+            "role" => "user",
+            "content" => [
+                [
+                    "type" => "text",
+                    "text" => json_encode([
+                        "context" => $context,
+                        "output_format" => [
+                            "focal_point" => [
+                                "x" => "float 0–1, or null",
+                                "y" => "float 0–1, or null",
+                            ],
+                            "confidence" => "float 0–1",
+                            "warnings" => "array of strings",
+                        ],
+                        "rules" => [
+                            "x and y must both be between 0 and 1.",
+                            "Prefer the most prominent human face when several subjects are present.",
+                            "Be precise; do not default to x 0.5 and y 0.5 unless the subject is genuinely centered.",
+                        ],
+                    ], JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT),
+                ],
+                [
+                    "type" => "image_url",
+                    "image_url" => ["url" => $imageUrl],
+                ],
+            ],
+        ];
+
+        return [
+            [
+                "role" => "system",
+                "content" => $systemPrompt,
+            ],
+            $userPrompt,
         ];
     }
 
@@ -245,5 +385,4 @@ EOT;
         
         return null;
     }
-
 }

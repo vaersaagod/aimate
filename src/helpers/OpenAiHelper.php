@@ -7,7 +7,6 @@ use vaersaagod\aimate\AIMate;
 
 final class OpenAiHelper
 {
-
     /**
      * @return \OpenAI\Client
      * @throws \Exception
@@ -21,7 +20,7 @@ final class OpenAiHelper
         }
         
         $guzzleClient = new Client([
-            'timeout' => 300, 
+            'timeout' => 300,
         ]);
 
         return \OpenAI::factory()
@@ -41,5 +40,4 @@ final class OpenAiHelper
         }
         return $settings->openAIApiKey;
     }
-
 }

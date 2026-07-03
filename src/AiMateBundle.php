@@ -7,7 +7,6 @@ use craft\web\assets\cp\CpAsset;
 
 class AiMateBundle extends AssetBundle
 {
-
     public function init()
     {
         $this->sourcePath = '@vaersaagod/aimate/resources';
@@ -28,5 +27,4 @@ class AiMateBundle extends AssetBundle
 
         parent::init();
     }
-
 }

@@ -13,7 +13,6 @@ use vaersaagod\aimate\helpers\OpenAiHelper;
 
 class Prompt extends Model
 {
-
     /** @var string|null The input text, if any */
     public ?string $text = null;
 
@@ -155,7 +154,7 @@ EOT;
 
         $rules = [
            "Make sure the returned text is in the correct language.",
-            ...$this->config->rules ?? []
+            ...$this->config->rules ?? [],
         ];
 
         // Figure out the max number of words we want
@@ -181,24 +180,24 @@ EOT;
                             "text" => "string",
                             "confidence" => "float 0–1",
                             "warnings" => "array of strings",
-                            "language" => $language
+                            "language" => $language,
                         ],
-                        "rules" => $rules
-                    ], JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT)
+                        "rules" => $rules,
+                    ], JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT),
                 ],
                 [
                     "type" => "text",
-                    'text' => $prompt
-                ]
-            ]
+                    'text' => $prompt,
+                ],
+            ],
         ];
 
         $messages = [
             [
                 "role" => "system",
-                "content" => $systemPrompt
+                "content" => $systemPrompt,
             ],
-            $userPrompt
+            $userPrompt,
         ];
 
         $params = [
@@ -230,5 +229,4 @@ EOT;
 
         return trim($data['text']);
     }
-
 }

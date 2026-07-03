@@ -22,7 +22,18 @@ final class CpHelper
                         'aimate-element-action' => 'generate-alt-text',
                         'element' => $element->id,
                         'site' => $element->siteId,
-                    ]
+                    ],
+                ],
+            ];
+
+            $actions[] = [
+                'label' => Craft::t('_aimate', 'Generate focal point'),
+                'attributes' => [
+                    'data' => [
+                        'aimate-element-action' => 'generate-focal-point',
+                        'element' => $element->id,
+                        'site' => $element->siteId,
+                    ],
                 ],
             ];
         }
@@ -43,7 +54,7 @@ final class CpHelper
                             'allowBlank' => $promptConfig->allowBlank,
                         ],
                     ],
-                ]
+                ],
             ];
         }
 

@@ -9,7 +9,6 @@ use craft\base\Model;
  */
 class PromptConfig extends Model
 {
-
     /** @var string|null */
     public ?string $handle = null;
 
@@ -54,5 +53,4 @@ class PromptConfig extends Model
     {
         return !str_contains($this->template ?? '', '<text>');
     }
-
 }

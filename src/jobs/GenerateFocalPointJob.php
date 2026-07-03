@@ -11,7 +11,7 @@ use vaersaagod\aimate\AIMate;
 use yii\base\InvalidConfigException;
 use yii\queue\Queue;
 
-class GenerateAltTextJob extends BaseJob
+class GenerateFocalPointJob extends BaseJob
 {
     // Public Properties
     // =========================================================================
@@ -20,12 +20,17 @@ class GenerateAltTextJob extends BaseJob
      * @var null|int
      */
     public ?int $assetId = null;
-    
+
     /**
      * @var null|int
      */
     public ?int $siteId = null;
-    
+
+    /**
+     * @var bool Whether to generate a focal point even if the asset already has one
+     */
+    public bool $forced = false;
+
 
     // Public Methods
     // =========================================================================
@@ -39,22 +44,27 @@ class GenerateAltTextJob extends BaseJob
     {
         $criteria = [];
         if ($this->assetId === null) {
-            throw new InvalidConfigException(Craft::t('_aimate', 'Asset ID in transform job was null'));
+            throw new InvalidConfigException(Craft::t('_aimate', 'Asset ID in focal point job was null'));
         }
-        
+
         $query = Asset::find();
         $criteria['id'] = $this->assetId;
         $criteria['siteId'] = $this->siteId;
         $criteria['status'] = null;
         Craft::configure($query, $criteria);
-        
+
         $asset = $query->one();
-        
+
         if (!$asset) {
             return;
         }
-        
-        AIMate::getInstance()->asset->generateAltTextForAsset($asset);
+
+        // Skip if a focal point has been set since this job was queued, e.g. by a duplicate job
+        if (!$this->forced && $asset->getHasFocalPoint()) {
+            return;
+        }
+
+        AIMate::getInstance()->asset->getFocalPointForAsset($asset);
     }
 
     // Protected Methods
@@ -67,6 +77,6 @@ class GenerateAltTextJob extends BaseJob
      */
     protected function defaultDescription(): ?string
     {
-        return Craft::t('_aimate', 'Generation alt text');
+        return Craft::t('_aimate', 'Generating focal point');
     }
 }

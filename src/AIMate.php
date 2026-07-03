@@ -25,12 +25,13 @@ use Monolog\Formatter\LineFormatter;
 
 use Psr\Log\LogLevel;
 
+use vaersaagod\aimate\actions\GenerateAltText;
+use vaersaagod\aimate\actions\GenerateFocalPoint;
 use vaersaagod\aimate\helpers\CpHelper;
 use vaersaagod\aimate\helpers\FieldHelper;
 use vaersaagod\aimate\helpers\OpenAiHelper;
 use vaersaagod\aimate\models\Settings;
-use vaersaagod\aimate\services\AltTextService;
-use vaersaagod\aimate\actions\GenerateAltText;
+use vaersaagod\aimate\services\AssetService;
 
 use yii\base\Event;
 
@@ -38,7 +39,7 @@ use yii\base\Event;
  * AIMate plugin
  *
  * @method static AIMate getInstance()
- * @property AltTextService $altText
+ * @property AssetService $asset
  * @method Settings getSettings()
  */
 class AIMate extends Plugin
@@ -50,7 +51,7 @@ class AIMate extends Plugin
     {
         return [
             'components' => [
-                'altText' => AltTextService::class,
+                'asset' => AssetService::class,
             ],
         ];
     }
@@ -73,7 +74,7 @@ class AIMate extends Plugin
         ]);
 
         // Defer most setup tasks until Craft is fully initialized
-        Craft::$app->onInit(function () {
+        Craft::$app->onInit(function() {
             $this->attachEventHandlers();
         });
     }
@@ -91,14 +92,16 @@ class AIMate extends Plugin
             return;
         }
 
+        /** @var Settings $settings */
         $settings = $this->getSettings();
 
         // Element action
         Event::on(
             Asset::class,
             Element::EVENT_REGISTER_ACTIONS,
-            function (RegisterElementActionsEvent $event) {
+            function(RegisterElementActionsEvent $event) {
                 $event->actions[] = GenerateAltText::class;
+                $event->actions[] = GenerateFocalPoint::class;
             }
         );
 
@@ -110,7 +113,7 @@ class AIMate extends Plugin
         Event::on(
             BaseField::class,
             BaseField::EVENT_DEFINE_ACTION_MENU_ITEMS,
-            static function (DefineFieldActionsEvent $event) {
+            static function(DefineFieldActionsEvent $event) {
                 if ($event->static || !$event->sender instanceof FieldLayoutElement) {
                     return;
                 }
@@ -135,7 +138,7 @@ class AIMate extends Plugin
         Event::on(
             Element::class,
             Element::EVENT_DEFINE_ADDITIONAL_BUTTONS,
-            function (DefineHtmlEvent $event) {
+            function(DefineHtmlEvent $event) {
                 $element = $event->sender;
                 if (!$element instanceof ElementInterface || ElementHelper::isRevision($element) || $event->static) {
                     return;
@@ -158,16 +161,25 @@ class AIMate extends Plugin
         );
 
 
-        if ($settings->autoAltTextEnabled) {
+        if ($settings->autoAltTextEnabled || $settings->autoFocalPointEnabled) {
             Event::on(Elements::class,
                 Elements::EVENT_AFTER_SAVE_ELEMENT,
-                static function (ElementEvent $event) {
+                static function(ElementEvent $event) use ($settings) {
                     /** @var \craft\base\Element $element */
                     $element = $event->element;
 
-                    if ($element instanceof Asset && $element->kind === Asset::KIND_IMAGE && in_array($element->extension, self::getInstance()->settings->safeImageFormats, true) && $element->isNewForSite && $element->getScenario() !== Asset::SCENARIO_INDEX) {
-                        if (!self::getInstance()->altText->hasAltText($element)) {
-                            self::getInstance()->altText->createGenerateAltTextJob($element);
+                    if ($element instanceof Asset && $element->kind === Asset::KIND_IMAGE && in_array($element->extension, $settings->safeImageFormats, true) && $element->isNewForSite && $element->getScenario() !== Asset::SCENARIO_INDEX) {
+                        if ($settings->autoAltTextEnabled) {
+                            if (!self::getInstance()->asset->hasAltText($element)) {
+                                self::getInstance()->asset->createGenerateAltTextJob($element);
+                            }
+                        }
+                        
+                        // The focal point is per-asset, not per-site, so only queue a job for the originating save (unlike alt text, which is site-specific)
+                        if ($settings->autoFocalPointEnabled && !$element->propagating) {
+                            if (!$element->getHasFocalPoint()) {
+                                self::getInstance()->asset->createGenerateFocalPointJob($element);
+                            }
                         }
                     }
                 }
@@ -175,13 +187,20 @@ class AIMate extends Plugin
 
             Event::on(Assets::class,
                 Assets::EVENT_AFTER_REPLACE_ASSET,
-                static function (ReplaceAssetEvent $event) {
-                    if (!self::getInstance()->altText->hasAltText($event->asset)) {
-                        self::getInstance()->altText->createGenerateAltTextJob($event->asset);
+                static function(ReplaceAssetEvent $event) use ($settings) {
+                    if ($settings->autoAltTextEnabled) {
+                        if (!self::getInstance()->asset->hasAltText($event->asset)) {
+                            self::getInstance()->asset->createGenerateAltTextJob($event->asset);
+                        }
+                    }
+
+                    if ($settings->autoFocalPointEnabled && $event->asset->kind === Asset::KIND_IMAGE) {
+                        if (!$event->asset->getHasFocalPoint()) {
+                            self::getInstance()->asset->createGenerateFocalPointJob($event->asset);
+                        }
                     }
                 }
             );
         }
     }
-
 }

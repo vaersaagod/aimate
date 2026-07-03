@@ -2,7 +2,6 @@
 
 namespace vaersaagod\aimate\helpers;
 
-use Craft;
 use craft\base\ElementInterface;
 use craft\base\FieldLayoutElement;
 use craft\fieldlayoutelements\assets\AltField;
@@ -156,5 +155,4 @@ final class FieldHelper
             ],
         ], $prompts);
     }
-
 }

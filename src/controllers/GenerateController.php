@@ -20,7 +20,7 @@ class GenerateController extends Controller
     /** @var array<int|string>|bool|int */
     protected array|int|bool $allowAnonymous = self::ALLOW_ANONYMOUS_NEVER;
 
-    /** @var int Maximum number of assets that can be queued for alt text generation in a single request */
+    /** @var int Maximum number of assets that can be queued for generation in a single request */
     private const MAX_BATCH_SIZE = 1000;
 
     /**
@@ -65,7 +65,7 @@ class GenerateController extends Controller
         }
 
         try {
-            $result = AIMate::getInstance()->altText->generateAltTextForAsset($asset);
+            $result = AIMate::getInstance()->asset->generateAltTextForAsset($asset);
         } catch (\Throwable $e) {
             Craft::error($e, __METHOD__);
             return $this->asFailure(message: Craft::t('_aimate', 'An error occurred while generating alt text.'));
@@ -117,7 +117,7 @@ class GenerateController extends Controller
                 if (!$asset || !$elementsService->canSave($asset, $currentUser)) {
                     continue;
                 }
-                AIMate::getInstance()->altText->createGenerateAltTextJob($asset, true);
+                AIMate::getInstance()->asset->createGenerateAltTextJob($asset, true);
             }
         } catch (\Throwable $e) {
             Craft::error($e, __METHOD__);
@@ -125,5 +125,92 @@ class GenerateController extends Controller
         }
 
         return $this->asSuccess(Craft::t('_aimate', 'Alt text generation jobs queued'));
+    }
+
+    /**
+     * @return Response|null
+     * @throws BadRequestHttpException
+     * @throws ForbiddenHttpException
+     * @throws \yii\web\MethodNotAllowedHttpException
+     */
+    public function actionGenerateFocalPoint(): ?Response
+    {
+        $this->requirePostRequest();
+        $this->requireAcceptsJson();
+
+        $elementId = (int)$this->request->getBodyParam('elementId');
+        $siteId = (int)$this->request->getBodyParam('siteId');
+
+        $asset = Asset::find()->id($elementId)->siteId($siteId)->one();
+
+        if (!$asset) {
+            throw new BadRequestHttpException('Invalid asset.');
+        }
+
+        $currentUser = Craft::$app->getUser()->getIdentity();
+        if (!$currentUser || !Craft::$app->getElements()->canSave($asset, $currentUser)) {
+            throw new ForbiddenHttpException('You do not have permission to edit this asset.');
+        }
+
+        try {
+            $result = AIMate::getInstance()->asset->getFocalPointForAsset($asset);
+        } catch (\Throwable $e) {
+            Craft::error($e, __METHOD__);
+            return $this->asFailure(message: Craft::t('_aimate', 'An error occurred while generating a focal point.'));
+        }
+
+        return $result ? $this->asSuccess() : $this->asFailure();
+    }
+
+    /**
+     * @return Response|null
+     * @throws BadRequestHttpException
+     * @throws ForbiddenHttpException
+     * @throws \yii\web\MethodNotAllowedHttpException
+     */
+    public function actionGenerateFocalPointJobs(): ?Response
+    {
+        $this->requirePostRequest();
+        $this->requireAcceptsJson();
+
+        $siteId = (int)$this->request->getBodyParam('siteId');
+
+        $elementIds = array_values(array_unique(array_filter(array_map(
+            static fn($id) => (int)$id,
+            explode(',', (string)$this->request->getBodyParam('elementIds'))
+        ))));
+
+        if (empty($elementIds)) {
+            throw new BadRequestHttpException('No assets provided.');
+        }
+
+        if (count($elementIds) > self::MAX_BATCH_SIZE) {
+            throw new BadRequestHttpException(Craft::t('_aimate', 'Too many assets selected. Select fewer than {max}, or use the “_aimate/asset/focal-point” console command for larger batches.', [
+                'max' => self::MAX_BATCH_SIZE,
+            ]));
+        }
+
+        $currentUser = Craft::$app->getUser()->getIdentity();
+        if (!$currentUser) {
+            throw new ForbiddenHttpException();
+        }
+
+        $elementsService = Craft::$app->getElements();
+
+        try {
+            foreach ($elementIds as $elementId) {
+                $asset = Asset::find()->id($elementId)->siteId($siteId)->one();
+                // Silently skip assets that don't exist or that the user isn't allowed to edit
+                if (!$asset || !$elementsService->canSave($asset, $currentUser)) {
+                    continue;
+                }
+                AIMate::getInstance()->asset->createGenerateFocalPointJob($asset, true);
+            }
+        } catch (\Throwable $e) {
+            Craft::error($e, __METHOD__);
+            return $this->asFailure(message: Craft::t('_aimate', 'An error occurred while queueing focal point generation.'));
+        }
+
+        return $this->asSuccess(Craft::t('_aimate', 'Focal point generation jobs queued'));
     }
 }
