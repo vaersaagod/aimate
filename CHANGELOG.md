@@ -1,5 +1,9 @@
 # AIMate Changelog
 
+## 2.1.0 - 2026-07-03
+### Added
+- Added AI-powered focal point generation for image assets.
+
 ## 2.0.2 - 2026-07-03
 ### Fixed
 - Fixed a template injection vulnerability where a request-supplied `custom` prompt template was rendered as a Twig object template.
