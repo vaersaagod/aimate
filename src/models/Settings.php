@@ -14,7 +14,7 @@ class Settings extends Model
     public string $openAIApiKey;
 
     /** @var string */
-    public string $model = 'gpt-5-mini';
+    public string $model = 'gpt-5.4-mini';
 
     /** @var PromptConfig[]|null  */
     public ?array $prompts = null;
