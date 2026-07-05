@@ -34,10 +34,16 @@ class AssetService extends Component
 
         $messages = $this->buildFocalPointPrompt($imageUrl);
 
-        $result = $client->chat()->create([
+        $requestParams = [
             'model' => $settings->model,
             'messages' => $messages,
-        ]);
+        ];
+
+        if ($reasoningEffort = self::getMinimumReasoningEffort($settings->model)) {
+            $requestParams['reasoning_effort'] = $reasoningEffort;
+        }
+
+        $result = $client->chat()->create($requestParams);
 
         $response = Collection::make($result['choices'] ?? [])->first(static fn(array $choice) => $choice['finish_reason'] === 'stop' && !empty($choice['message']['content'] ?? null));
 
@@ -137,11 +143,17 @@ class AssetService extends Component
         );
         
         // TODO: Add file name and path to context?
-        
-        $result = $client->chat()->create([
+
+        $requestParams = [
             'model' => $settings->model,
             'messages' => $messages,
-        ]);
+        ];
+
+        if ($reasoningEffort = self::getMinimumReasoningEffort($settings->model)) {
+            $requestParams['reasoning_effort'] = $reasoningEffort;
+        }
+
+        $result = $client->chat()->create($requestParams);
 
         $response = Collection::make($result['choices'] ?? [])->first(static fn(array $choice) => $choice['finish_reason'] === 'stop' && !empty($choice['message']['content'] ?? null));
         
@@ -226,10 +238,8 @@ class AssetService extends Component
             'response_format' => ['type' => 'json_object'],
         ];
 
-        // Keyword generation doesn't benefit from reasoning – dial it down to keep latency reasonable
-        if (str_starts_with($settings->model, 'gpt-5') && !str_contains($settings->model, '-chat')) {
-            // The lowest supported reasoning effort is "minimal" for the original GPT-5 models, "none" for GPT-5.1 and later
-            $requestParams['reasoning_effort'] = str_starts_with($settings->model, 'gpt-5.') ? 'none' : 'minimal';
+        if ($reasoningEffort = self::getMinimumReasoningEffort($settings->model)) {
+            $requestParams['reasoning_effort'] = $reasoningEffort;
         }
 
         $result = $client->chat()->create($requestParams);
@@ -535,7 +545,23 @@ EOT;
         }
         
         // TODO : What more can we do?
-        
+
         return null;
+    }
+
+    /**
+     * The image-based asset tasks (alt text, focal point, keywords) don't benefit from reasoning – dialing it
+     * down keeps latency and cost reasonable.
+     *
+     * @param string $model
+     * @return string|null The lowest supported reasoning effort for the given model, or null if it isn't a known reasoning model.
+     */
+    private static function getMinimumReasoningEffort(string $model): ?string
+    {
+        if (!str_starts_with($model, 'gpt-5') || str_contains($model, '-chat')) {
+            return null;
+        }
+        // The lowest supported reasoning effort is "minimal" for the original GPT-5 models, "none" for GPT-5.1 and later
+        return str_starts_with($model, 'gpt-5.') ? 'none' : 'minimal';
     }
 }
