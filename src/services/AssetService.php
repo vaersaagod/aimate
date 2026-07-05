@@ -185,6 +185,90 @@ class AssetService extends Component
     }
 
     /**
+     * Generate suggested keywords for an image asset, e.g. for search/tagging purposes in a DAM.
+     * Unlike the alt text and focal point methods, this doesn't save anything – the keywords are returned to the caller.
+     *
+     * @param Asset      $asset            The image asset to generate keywords for.
+     * @param int        $maxKeywords      Maximum number of keywords to return.
+     * @param string|null $language         Language for the keywords (defaults to the asset's site language).
+     * @param array|null $existingKeywords Keywords already describing the asset; the model is asked to complement these, not repeat them.
+     *
+     * @return array|null The generated keywords, or null on failure.
+     * @throws \Exception
+     */
+    public function getKeywordsForAsset(Asset $asset, int $maxKeywords = 20, ?string $language = null, ?array $existingKeywords = null): ?array
+    {
+        if ($asset->kind !== Asset::KIND_IMAGE) {
+            throw new \InvalidArgumentException("Asset \"$asset->filename\" is not an image");
+        }
+
+        $settings = AIMate::getInstance()->getSettings();
+
+        $client = OpenAiHelper::getClient();
+
+        $imageUrl = $this->getAssetUrl($asset);
+
+        if (empty($imageUrl)) {
+            \Craft::error('Could not get image URL for asset ' . $asset->id, __METHOD__);
+            return null;
+        }
+
+        $messages = $this->buildKeywordsPrompt(
+            $imageUrl,
+            language: $language ?? $asset->getSite()->language ?? \Craft::$app->getSites()->getCurrentSite()->language,
+            maxKeywords: $maxKeywords,
+            existingKeywords: $existingKeywords,
+        );
+
+        $requestParams = [
+            'model' => $settings->model,
+            'messages' => $messages,
+            'response_format' => ['type' => 'json_object'],
+        ];
+
+        // Keyword generation doesn't benefit from reasoning – dial it down to keep latency reasonable
+        if (str_starts_with($settings->model, 'gpt-5') && !str_contains($settings->model, '-chat')) {
+            $requestParams['reasoning_effort'] = 'minimal';
+        }
+
+        $result = $client->chat()->create($requestParams);
+
+        $response = Collection::make($result['choices'] ?? [])->first(static fn(array $choice) => $choice['finish_reason'] === 'stop' && !empty($choice['message']['content'] ?? null));
+
+        if (!$response) {
+            \Craft::error('Invalid response from OpenAI for asset ' . $asset->id . ': ' . print_r($result, true), __METHOD__);
+            return null;
+        }
+
+        $message = trim($response['message']['content']);
+
+        try {
+            $data = json_decode($message, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\Throwable $e) {
+            \Craft::error('Invalid JSON response from OpenAI for asset ' . $asset->id . ': ' . $e->getMessage(), __METHOD__);
+            return null;
+        }
+
+        $keywords = $data['keywords'] ?? $data['output_format']['keywords'] ?? null; // For some obscure reason, the API sometimes returns the whole request structure back.
+
+        if (!is_array($keywords)) {
+            \Craft::error('No keywords found in response from OpenAI for asset ' . $asset->id . ': ' . print_r($data, true), __METHOD__);
+            return null;
+        }
+
+        $keywords = Collection::make($keywords)
+            ->filter(static fn($keyword) => is_string($keyword))
+            ->map(static fn(string $keyword) => trim($keyword))
+            ->filter()
+            ->unique()
+            ->take($maxKeywords)
+            ->values()
+            ->all();
+
+        return $keywords ?: null;
+    }
+
+    /**
      * Build OpenAI chat messages for generating alt text from an image.
      *
      * @param string      $imageUrl        URL of the image to describe.
@@ -241,6 +325,74 @@ EOT;
                             "Include on-image text if essential.",
                             "Skip SEO terms, camera data, filenames.",
                             "Make sure the returned alt text is in the correct language.",
+                        ],
+                    ], JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT),
+                ],
+                [
+                    "type" => "image_url",
+                    "image_url" => ["url" => $imageUrl],
+                ],
+            ],
+        ];
+
+        return [
+            [
+                "role" => "system",
+                "content" => $systemPrompt,
+            ],
+            $userPrompt,
+        ];
+    }
+
+    /**
+     * Build OpenAI chat messages for generating search keywords from an image.
+     *
+     * @param string      $imageUrl         URL of the image to generate keywords for.
+     * @param string      $language         Language code for the keywords (default: 'en').
+     * @param int         $maxKeywords      Maximum number of keywords (default: 20).
+     * @param array|null  $existingKeywords Existing keywords the model should complement, not repeat.
+     * @param string|null $context          Optional context, e.g., page title or caption.
+     *
+     * @return array The `messages` array to send to OpenAI’s Chat API.
+     * @throws \JsonException
+     */
+    public function buildKeywordsPrompt(
+        string $imageUrl,
+        string $language = 'en',
+        int $maxKeywords = 20,
+        ?array $existingKeywords = null,
+        ?string $context = null,
+    ): array {
+        $systemPrompt = <<<EOT
+You are an expert photo librarian for a digital asset management (DAM) system. Generate accurate, non-hallucinated keywords that make images easy to find via search.
+- Keywords should be single words or short phrases (max two words).
+- Cover the most important subjects and objects first, then setting and scene, activities, season and time of day, concepts and mood.
+- Prefer verifiable visual facts over guesses.
+- Avoid sensitive inferences (race, nationality, disability, etc.).
+- Skip camera data, filenames and SEO terms.
+- Return output in valid JSON format exactly as specified.
+EOT;
+
+        $userPrompt = [
+            "role" => "user",
+            "content" => [
+                [
+                    "type" => "text",
+                    "text" => json_encode([
+                        "language" => $language,
+                        "max_keywords" => $maxKeywords,
+                        "existing_keywords" => array_values($existingKeywords ?? []),
+                        "context" => $context,
+                        "output_format" => [
+                            "keywords" => "array of strings",
+                            "confidence" => "float 0–1",
+                            "warnings" => "array of strings",
+                        ],
+                        "rules" => [
+                            "Return at most max_keywords keywords, ordered from most to least relevant.",
+                            "Do not repeat or trivially rephrase any of the existing_keywords.",
+                            "Use lowercase, except for proper nouns.",
+                            "Make sure the returned keywords are in the correct language.",
                         ],
                     ], JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT),
                 ],
