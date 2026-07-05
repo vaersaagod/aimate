@@ -228,7 +228,8 @@ class AssetService extends Component
 
         // Keyword generation doesn't benefit from reasoning – dial it down to keep latency reasonable
         if (str_starts_with($settings->model, 'gpt-5') && !str_contains($settings->model, '-chat')) {
-            $requestParams['reasoning_effort'] = 'minimal';
+            // The lowest supported reasoning effort is "minimal" for the original GPT-5 models, "none" for GPT-5.1 and later
+            $requestParams['reasoning_effort'] = str_starts_with($settings->model, 'gpt-5.') ? 'none' : 'minimal';
         }
 
         $result = $client->chat()->create($requestParams);
