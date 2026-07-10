@@ -280,6 +280,188 @@ class AssetService extends Component
     }
 
     /**
+     * Analyse an image and return any combination of alt text, keywords and a focal point in a
+     * SINGLE OpenAI vision call (rather than one call per task). Nothing is saved – the results are
+     * returned to the caller, which decides what to do with them.
+     *
+     * @param Asset $asset   The image asset to analyse.
+     * @param array $include Which tasks to run – any of 'altText', 'keywords', 'focalPoint'.
+     * @param array $opts    Optional: 'language' (string), 'maxKeywords' (int), 'existingKeywords' (array), 'altMaxChars' (int).
+     *
+     * @return array A map with the requested keys: 'altText' => ?string, 'keywords' => ?array,
+     *               'focalPoint' => ?array{x: float, y: float}. Missing/failed tasks are null or absent.
+     * @throws \Exception
+     */
+    public function analyzeImage(Asset $asset, array $include = ['altText', 'keywords', 'focalPoint'], array $opts = []): array
+    {
+        if ($asset->kind !== Asset::KIND_IMAGE) {
+            throw new \InvalidArgumentException("Asset \"$asset->filename\" is not an image");
+        }
+
+        $include = array_values(array_intersect(['altText', 'keywords', 'focalPoint'], $include));
+        if (empty($include)) {
+            return [];
+        }
+
+        $settings = AIMate::getInstance()->getSettings();
+
+        $client = OpenAiHelper::getClient();
+
+        $imageUrl = $this->getAssetUrl($asset);
+
+        if (empty($imageUrl)) {
+            \Craft::error('Could not get image URL for asset ' . $asset->id, __METHOD__);
+            return [];
+        }
+
+        $language = $opts['language'] ?? $asset->getSite()->language ?? \Craft::$app->getSites()->getCurrentSite()->language;
+        $maxKeywords = $opts['maxKeywords'] ?? 20;
+
+        $messages = $this->buildAnalysisPrompt($imageUrl, $include, [
+            'language' => $language,
+            'maxKeywords' => $maxKeywords,
+            'existingKeywords' => $opts['existingKeywords'] ?? null,
+            'altMaxChars' => $opts['altMaxChars'] ?? 140,
+        ]);
+
+        $requestParams = [
+            'model' => $settings->model,
+            'messages' => $messages,
+            'response_format' => ['type' => 'json_object'],
+        ];
+
+        if ($reasoningEffort = self::getMinimumReasoningEffort($settings->model)) {
+            $requestParams['reasoning_effort'] = $reasoningEffort;
+        }
+
+        $result = $client->chat()->create($requestParams);
+
+        $response = Collection::make($result['choices'] ?? [])->first(static fn(array $choice) => $choice['finish_reason'] === 'stop' && !empty($choice['message']['content'] ?? null));
+
+        if (!$response) {
+            \Craft::error('Invalid response from OpenAI for asset ' . $asset->id . ': ' . print_r($result, true), __METHOD__);
+            return [];
+        }
+
+        try {
+            $data = json_decode(trim($response['message']['content']), true, 512, JSON_THROW_ON_ERROR);
+        } catch (\Throwable $e) {
+            \Craft::error('Invalid JSON response from OpenAI for asset ' . $asset->id . ': ' . $e->getMessage(), __METHOD__);
+            return [];
+        }
+
+        // The API sometimes echoes the whole request structure back under "output_format"
+        $data = $data['output_format'] ?? $data;
+
+        $out = [];
+
+        // Each field is parsed independently, so a malformed field doesn't discard the others
+        if (in_array('altText', $include, true)) {
+            $out['altText'] = isset($data['alt_text']) && is_string($data['alt_text']) ? (trim($data['alt_text']) ?: null) : null;
+        }
+
+        if (in_array('keywords', $include, true)) {
+            $keywords = is_array($data['keywords'] ?? null)
+                ? Collection::make($data['keywords'])
+                    ->filter(static fn($keyword) => is_string($keyword))
+                    ->map(static fn(string $keyword) => trim($keyword))
+                    ->filter()
+                    ->unique()
+                    ->take($maxKeywords)
+                    ->values()
+                    ->all()
+                : [];
+            $out['keywords'] = $keywords ?: null;
+        }
+
+        if (in_array('focalPoint', $include, true)) {
+            $focalPoint = $data['focal_point'] ?? null;
+            if (isset($focalPoint['x'], $focalPoint['y']) && is_numeric($focalPoint['x']) && is_numeric($focalPoint['y'])) {
+                // Clamp to the 0–1 range – Asset::setFocalPoint() silently discards out-of-range values
+                $out['focalPoint'] = [
+                    'x' => min(1.0, max(0.0, round((float)$focalPoint['x'], 4))),
+                    'y' => min(1.0, max(0.0, round((float)$focalPoint['y'], 4))),
+                ];
+            } else {
+                $out['focalPoint'] = null;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Build OpenAI chat messages for the combined analyzeImage() call, requesting only the given tasks.
+     *
+     * @param string $imageUrl URL of the image to analyse.
+     * @param array  $include  Any of 'altText', 'keywords', 'focalPoint'.
+     * @param array  $opts     'language', 'maxKeywords', 'existingKeywords', 'altMaxChars'.
+     *
+     * @return array The `messages` array to send to OpenAI’s Chat API.
+     * @throws \JsonException
+     */
+    public function buildAnalysisPrompt(string $imageUrl, array $include, array $opts = []): array
+    {
+        $language = $opts['language'] ?? 'en';
+        $maxKeywords = $opts['maxKeywords'] ?? 20;
+        $existingKeywords = $opts['existingKeywords'] ?? null;
+        $altMaxChars = $opts['altMaxChars'] ?? 140;
+
+        $roles = [];
+        $rules = [];
+        $outputFormat = [];
+        $userContent = ['language' => $language];
+
+        if (in_array('altText', $include, true)) {
+            $roles[] = 'an expert accessibility writer';
+            $rules[] = "alt_text: concise, accurate, non-hallucinated alternative text meeting WCAG 2.2 / ARIA guidance, in the language \"$language\". Never include \"image of\" or \"picture of\". Avoid sensitive inferences (race, nationality, disability, etc.). Use sentence case with no trailing period unless multiple sentences. Return an empty string if the image is purely decorative. Max $altMaxChars characters.";
+            $outputFormat['alt_text'] = 'string';
+        }
+
+        if (in_array('keywords', $include, true)) {
+            $roles[] = 'an expert photo librarian';
+            $rules[] = "keywords: up to $maxKeywords single- or short two-word search keywords, ordered most to least relevant, covering the main subjects/objects, then setting/scene, activities, season/time of day, and mood. Verifiable visual facts only; no camera data, filenames or SEO terms. Do not repeat or trivially rephrase the existing_keywords. Language \"$language\", lowercase except proper nouns.";
+            $outputFormat['keywords'] = 'array of strings';
+            $userContent['existing_keywords'] = array_values($existingKeywords ?? []);
+        }
+
+        if (in_array('focalPoint', $include, true)) {
+            $roles[] = 'an expert photo editor';
+            $rules[] = 'focal_point: the single most important point for anchoring crops. Priority order: human faces, then people/animals, then the main subject, then the sharpest/highest-contrast area. x is horizontal (0.0 = left, 1.0 = right), y is vertical (0.0 = top, 1.0 = bottom); aim for the centre of the subject (between the eyes for faces). Return null for both x and y if there is no discernible subject. Language-independent.';
+            $outputFormat['focal_point'] = ['x' => 'float 0–1, or null', 'y' => 'float 0–1, or null'];
+        }
+
+        $roleList = count($roles) > 1
+            ? implode(', ', array_slice($roles, 0, -1)) . ' and ' . end($roles)
+            : ($roles[0] ?? 'an expert image analyst');
+
+        $systemPrompt = "You are $roleList. Analyse the image and return the requested fields. Prefer verifiable visual facts over guesses. Return output in valid JSON format exactly as specified, with no extra keys.";
+
+        $userContent['output_format'] = $outputFormat;
+        $userContent['rules'] = $rules;
+
+        return [
+            [
+                'role' => 'system',
+                'content' => $systemPrompt,
+            ],
+            [
+                'role' => 'user',
+                'content' => [
+                    [
+                        'type' => 'text',
+                        'text' => json_encode($userContent, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT),
+                    ],
+                    [
+                        'type' => 'image_url',
+                        'image_url' => ['url' => $imageUrl],
+                    ],
+                ],
+            ],
+        ];
+    }
+
+    /**
      * Build OpenAI chat messages for generating alt text from an image.
      *
      * @param string      $imageUrl        URL of the image to describe.

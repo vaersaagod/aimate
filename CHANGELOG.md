@@ -4,6 +4,7 @@
 ### Added
 - Added AI-powered keyword generation for image assets, via the new `AssetService::getKeywordsForAsset()` method. Unlike the alt text and focal point features, the generated keywords are returned to the caller instead of being saved to the asset.
 - Added the `CpHelper::EVENT_DEFINE_ELEMENT_ACTIONS` event (with the new `DefineAiActionsEvent` class), enabling plugins and modules to add their own actions to the "AI" menu on element edit pages.
+- Added the `AssetService::analyzeImage()` method, which generates any combination of alt text, keywords and a focal point in a single OpenAI vision call (instead of one call per task). Returns the results to the caller without saving.
 
 ### Changed
 - Changed the default model to `gpt-5.4-mini`, as OpenAI has deprecated `gpt-5-mini` (API access shuts down in December 2026).
