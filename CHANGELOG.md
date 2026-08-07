@@ -1,6 +1,6 @@
 # AIMate Changelog
 
-## Unreleased
+## 2.2.0 - 2026-08-07
 ### Added
 - Added AI-powered keyword generation for image assets, via the new `AssetService::getKeywordsForAsset()` method. Unlike the alt text and focal point features, the generated keywords are returned to the caller instead of being saved to the asset.
 - Added the `CpHelper::EVENT_DEFINE_ELEMENT_ACTIONS` event (with the new `DefineAiActionsEvent` class), enabling plugins and modules to add their own actions to the "AI" menu on element edit pages.
