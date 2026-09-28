@@ -208,6 +208,30 @@ Items use Craft's `Cp::disclosureMenu()` format. AIMate only **renders** the ite
 your plugin/module is responsible for handling the click (typically a `data-*`
 attribute plus a delegated JS handler).
 
+## Changing the image transform
+
+AIMate sends OpenAI a transform of the image (`thumbSize` wide and high, `fit`, JPG). Listen for
+`AssetService::EVENT_DEFINE_IMAGE_TRANSFORM` to change the transform, or to pass transform
+defaults on to Imager X – for instance when a volume is served from a different Bunny pull zone:
+
+```php
+use yii\base\Event;
+use vaersaagod\aimate\services\AssetService;
+use vaersaagod\aimate\events\DefineImageTransformEvent;
+
+Event::on(
+    AssetService::class,
+    AssetService::EVENT_DEFINE_IMAGE_TRANSFORM,
+    static function (DefineImageTransformEvent $event) {
+        if ($event->asset->getVolume()->handle === 'archive') {
+            $event->transformDefaults = ['transformerParams' => ['profile' => 'storage']];
+        }
+    }
+);
+```
+
+`transformDefaults` is ignored when Imager X isn't used.
+
 ## Console commands
 
 ```bash

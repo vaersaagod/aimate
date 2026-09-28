@@ -1,5 +1,12 @@
 # AIMate Changelog
 
+## 2.3.0 - 2026-09-28
+### Added
+- Added the `AssetService::EVENT_DEFINE_IMAGE_TRANSFORM` event (with the new `DefineImageTransformEvent` class), enabling plugins and modules to change the transform for the image sent to OpenAI, or pass transform defaults on to Imager X – e.g. a Bunny transformer profile per volume.
+
+### Fixed
+- Fixed base64-encoded images being typed from the asset's mime type instead of their actual contents. A transform to JPG of a PNG was sent as `image/png`, and an error page served with a 200 in place of the image was sent to OpenAI as an image; it's now logged and skipped.
+
 ## 2.2.0 - 2026-08-07
 ### Added
 - Added AI-powered keyword generation for image assets, via the new `AssetService::getKeywordsForAsset()` method. Unlike the alt text and focal point features, the generated keywords are returned to the caller instead of being saved to the asset.

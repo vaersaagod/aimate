@@ -13,12 +13,22 @@ use Illuminate\Support\Collection;
 use spacecatninja\imagerx\ImagerX;
 
 use vaersaagod\aimate\AIMate;
+use vaersaagod\aimate\events\DefineImageTransformEvent;
 use vaersaagod\aimate\helpers\OpenAiHelper;
 use vaersaagod\aimate\jobs\GenerateAltTextJob;
 use vaersaagod\aimate\jobs\GenerateFocalPointJob;
 
 class AssetService extends Component
 {
+    /**
+     * @event DefineImageTransformEvent The event that is triggered when defining the transform for the image sent to
+     * OpenAI. Lets a plugin or module change the transform, or pass transform defaults on to Imager X.
+     */
+    public const EVENT_DEFINE_IMAGE_TRANSFORM = 'defineImageTransform';
+
+    /** @var string[] The image types OpenAI's vision models accept */
+    private const SUPPORTED_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+
     public function getFocalPointForAsset(Asset $asset): bool
     {
         $settings = AIMate::getInstance()->getSettings();
@@ -672,16 +682,21 @@ EOT;
         $plugins = \Craft::$app->getPlugins();
         $imagerPlugin = $plugins->getPlugin('imager-x') ?? $plugins->getPlugin('imager');
 
-        $transform = [
-            'width' => $settings->thumbSize,
-            'height' => $settings->thumbSize,
-            'mode' => 'fit',
-            'format' => 'jpg',
-            'quality' => 70,
-        ];
+        $event = new DefineImageTransformEvent([
+            'asset' => $asset,
+            'transform' => [
+                'width' => $settings->thumbSize,
+                'height' => $settings->thumbSize,
+                'mode' => 'fit',
+                'format' => 'jpg',
+                'quality' => 70,
+            ],
+        ]);
+        $this->trigger(self::EVENT_DEFINE_IMAGE_TRANSFORM, $event);
+        $transform = $event->transform;
         
         if ($settings->useImagerIfInstalled && ($imagerPlugin instanceof \aelvan\imager\Imager || $imagerPlugin instanceof \spacecatninja\imagerx\ImagerX)) {
-            $transformedImageUrl = ImagerX::getInstance()->imager->transformImage($asset, $transform)?->getUrl();
+            $transformedImageUrl = ImagerX::getInstance()->imager->transformImage($asset, $transform, $event->transformDefaults)?->getUrl();
         } else {
             $transformedImageUrl = $asset->getUrl($transform);
         }
@@ -696,9 +711,7 @@ EOT;
                 $assetContents = @file_get_contents($transformedImageUrl);
 
                 if ($assetContents !== false) {
-                    $assetMimeType = strtolower($asset->getMimeType());
-                    $base64Image = base64_encode($assetContents);
-                    return "data:$assetMimeType;base64,$base64Image";
+                    return $this->getImageDataUrl($assetContents, $transformedImageUrl);
                 }
             }
             
@@ -719,16 +732,34 @@ EOT;
 
             // Only read the file if it resolves to a real file inside the webroot
             if ($realWebroot !== false && $filename !== false && str_starts_with($filename, $realWebroot . DIRECTORY_SEPARATOR) && is_file($filename)) {
-                $assetContents = file_get_contents($filename);
-                $assetMimeType = strtolower($asset->getMimeType());
-                $base64Image = base64_encode($assetContents);
-                return "data:$assetMimeType;base64,$base64Image";
+                return $this->getImageDataUrl(file_get_contents($filename), $filename);
             }
         }
         
         // TODO : What more can we do?
 
         return null;
+    }
+
+    /**
+     * Base64-encodes image contents as a data URL, typed from the contents themselves: the asset's own mime type
+     * says nothing about a transform, or about an error page served with a 200 in place of the image.
+     *
+     * @param string $contents The image contents
+     * @param string $source   Where the contents came from, for the log
+     *
+     * @return string|null The data URL, or null if the contents aren't an image OpenAI accepts
+     */
+    private function getImageDataUrl(string $contents, string $source): ?string
+    {
+        $mimeType = (new \finfo(FILEINFO_MIME_TYPE))->buffer($contents);
+
+        if (!in_array($mimeType, self::SUPPORTED_IMAGE_MIME_TYPES, true)) {
+            \Craft::error('Expected an image from ' . $source . ', got ' . ($mimeType ?: 'nothing') . ' (' . strlen($contents) . ' bytes)', __METHOD__);
+            return null;
+        }
+
+        return "data:$mimeType;base64," . base64_encode($contents);
     }
 
     /**
