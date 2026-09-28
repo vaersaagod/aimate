@@ -6,7 +6,7 @@
     "require": {
         "php": "^8.2.0",
         "craftcms/cms": "^5.9.0",
-        "openai-php/client": "^v0.10.3"
+        "openai-php/client": "^0.21"
     },
     "require-dev": {
         "craftcms/ecs": "dev-main",

@@ -4,6 +4,9 @@
 ### Added
 - Added the `AssetService::EVENT_DEFINE_IMAGE_TRANSFORM` event (with the new `DefineImageTransformEvent` class), enabling plugins and modules to change the transform for the image sent to OpenAI, or pass transform defaults on to Imager X – e.g. a Bunny transformer profile per volume.
 
+### Changed
+- AIMate now requires `openai-php/client` 0.21. The previous 0.10 line returned OpenAI errors sent as `text/plain` (e.g. an invalid API key) as a raw string, which surfaced as a `CreateResponse::from()` type error instead of OpenAI's own error message.
+
 ### Fixed
 - Fixed base64-encoded images being typed from the asset's mime type instead of their actual contents. A transform to JPG of a PNG was sent as `image/png`, and an error page served with a 200 in place of the image was sent to OpenAI as an image; it's now logged and skipped.
 
