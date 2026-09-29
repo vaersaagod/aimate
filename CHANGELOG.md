@@ -1,5 +1,9 @@
 # AIMate Changelog
 
+## 2.4.0 - 2026-09-29
+### Added
+- Added `DefineImageTransformEvent::$imageUrl`, enabling a listener to supply the image sent to OpenAI itself: a URL, absolute or relative to the webroot. For assets that can't be transformed the usual way, e.g. images on a CDN that can't resize them. When set, AIMate doesn't transform the asset.
+
 ## 2.3.0 - 2026-09-28
 ### Added
 - Added the `AssetService::EVENT_DEFINE_IMAGE_TRANSFORM` event (with the new `DefineImageTransformEvent` class), enabling plugins and modules to change the transform for the image sent to OpenAI, or pass transform defaults on to Imager X – e.g. a Bunny transformer profile per volume.
