@@ -232,6 +232,22 @@ Event::on(
 
 `transformDefaults` is ignored when Imager X isn't used.
 
+If the asset can't be transformed that way at all, for instance because it's on a CDN that can't resize
+it, a listener can make the image itself and hand AIMate its URL, absolute or relative to the webroot.
+AIMate then skips its own transform. Size it from `$event->transform`:
+
+```php
+Event::on(
+    AssetService::class,
+    AssetService::EVENT_DEFINE_IMAGE_TRANSFORM,
+    static function (DefineImageTransformEvent $event) {
+        if ($event->asset->getVolume()->handle === 'archive') {
+            $event->imageUrl = MyImageHelper::transform($event->asset, $event->transform)?->getUrl();
+        }
+    }
+);
+```
+
 ## Console commands
 
 ```bash

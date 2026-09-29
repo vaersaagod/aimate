@@ -695,7 +695,10 @@ EOT;
         $this->trigger(self::EVENT_DEFINE_IMAGE_TRANSFORM, $event);
         $transform = $event->transform;
         
-        if ($settings->useImagerIfInstalled && ($imagerPlugin instanceof \aelvan\imager\Imager || $imagerPlugin instanceof \spacecatninja\imagerx\ImagerX)) {
+        if (!empty($event->imageUrl)) {
+            // A listener made the image itself
+            $transformedImageUrl = $event->imageUrl;
+        } elseif ($settings->useImagerIfInstalled && ($imagerPlugin instanceof \aelvan\imager\Imager || $imagerPlugin instanceof \spacecatninja\imagerx\ImagerX)) {
             $transformedImageUrl = ImagerX::getInstance()->imager->transformImage($asset, $transform, $event->transformDefaults)?->getUrl();
         } else {
             $transformedImageUrl = $asset->getUrl($transform);
