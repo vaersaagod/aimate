@@ -10,9 +10,23 @@ use craft\queue\QueueInterface;
 use vaersaagod\aimate\AIMate;
 use yii\base\InvalidConfigException;
 use yii\queue\Queue;
+use yii\queue\RetryableJobInterface;
 
-class GenerateAltTextJob extends BaseJob
+class GenerateAltTextJob extends BaseJob implements RetryableJobInterface
 {
+    // Constants
+    // =========================================================================
+
+    /**
+     * @var int Seconds a single attempt may run before the queue considers it failed
+     */
+    public const TTR = 300;
+
+    /**
+     * @var int Total number of times the job is attempted, including the first run
+     */
+    public const MAX_ATTEMPTS = 3;
+
     // Public Properties
     // =========================================================================
 
@@ -55,6 +69,24 @@ class GenerateAltTextJob extends BaseJob
         }
         
         AIMate::getInstance()->asset->generateAltTextForAsset($asset);
+    }
+
+    /**
+     * @return int
+     */
+    public function getTtr(): int
+    {
+        return self::TTR;
+    }
+
+    /**
+     * @param int $attempt
+     * @param \Throwable|null $error
+     * @return bool
+     */
+    public function canRetry($attempt, $error): bool
+    {
+        return $attempt < self::MAX_ATTEMPTS;
     }
 
     // Protected Methods
