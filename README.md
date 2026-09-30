@@ -47,7 +47,7 @@ return [
 | Setting | Type | Default | Description |
 |---|---|---|---|
 | `openAIApiKey` | `string` | – | Your OpenAI API key. Best set from an environment variable. |
-| `model` | `string` | `gpt-5.4-mini` | Default OpenAI model used for every call. |
+| `model` | `string` | `gpt-6-luna` | Default OpenAI model used for every call. |
 | `prompts` | `array` | `null` | Reusable text-prompt definitions, keyed by handle (see [Prompts](#prompts)). |
 | `fields` | `array` | `[]` | Which fields the prompt actions appear on, keyed by field handle, field class or `'*'`. Set an entry to `false` to disable a field. |
 | `altTextHandle` | `string` | `alt` | The asset attribute/field that generated alt text is written to (Craft's native `alt`, or a custom field handle). |
@@ -77,7 +77,7 @@ pages and on supported fields. Each prompt is keyed by its handle:
         'name'     => 'Improve writing',     // required — the menu label
         'template' => 'Improve the writing of the following text, keeping its meaning: <text>', // required
         // Optional:
-        'model'       => 'gpt-5.4',          // override the default model for this prompt
+        'model'       => 'gpt-6.1-sol',      // override the default model for this prompt
         'temperature' => 0.4,
         'maxWords'    => 60,                  // int, or false for no limit
         'maxWordsMultiplier' => 1.5,
@@ -177,7 +177,7 @@ $service->hasAltText($asset);
 ```
 
 `getKeywordsForAsset()` and `analyzeImage()` throw `InvalidArgumentException` if the
-asset isn't an image. For GPT‑5 reasoning models, AIMate automatically requests the
+asset isn't an image. For GPT‑5 and GPT‑6 reasoning models, AIMate automatically requests the
 lowest supported reasoning effort for the image tasks to keep latency and cost down.
 
 ## Extending the AI menu

@@ -774,6 +774,11 @@ EOT;
      */
     private static function getMinimumReasoningEffort(string $model): ?string
     {
+        if (str_starts_with($model, 'gpt-6')) {
+            // GPT-6 Luna supports "none", while Sol and Astra bottom out at "low"
+            return str_contains($model, '-luna') ? 'none' : 'low';
+        }
+
         if (!str_starts_with($model, 'gpt-5') || str_contains($model, '-chat')) {
             return null;
         }
