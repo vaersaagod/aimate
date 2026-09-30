@@ -1,5 +1,11 @@
 # AIMate Changelog
 
+## 2.4.1 - 2026-09-30
+### Changed
+- Changed the alt text and focal point queue jobs to be retryable. They're now attempted up to 3 times, with a TTR of 300 seconds per attempt.
+- Changed the default model from `gpt-5.4-mini` to `gpt-6-luna`.
+- Changed the image tasks to also request the lowest supported reasoning effort for GPT-6 models (`none` for Luna, `low` for Sol and Astra).
+
 ## 2.4.0 - 2026-09-29
 ### Added
 - Added `DefineImageTransformEvent::$imageUrl`, enabling a listener to supply the image sent to OpenAI itself: a URL, absolute or relative to the webroot. For assets that can't be transformed the usual way, e.g. images on a CDN that can't resize them. When set, AIMate doesn't transform the asset.
